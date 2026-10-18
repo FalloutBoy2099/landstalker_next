@@ -1,0 +1,9 @@
+[package]
+name = "lsctl"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+ls_data = { path = "../ls_data" }
+anyhow.workspace = true
+serde_yaml.workspace = true

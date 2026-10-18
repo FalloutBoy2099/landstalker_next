@@ -1,0 +1,57 @@
+# Rust
+/target
+**/*.rs.bk
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Data derived from the ROMs (copyrighted: not published). Regenerate it with the tools: tools/convert_data.py (rooms, sprites,
+# graphics, tilesets, texts, scripts), lsctl (archives, sounds), tools/export_i18n.py (texts -> data/i18n), tools/emuhawk (recorded cutscenes).
+# What is written by hand stays: data/scripts/*.lua, data/physics.yaml, the dictionaries ui.yaml and messages.yaml, the tools, the docs.
+# ---------------------------------------------------------------------------------------------------------------------
+/data/rooms/
+/data/sprites/
+/data/audio/
+/data/graphics/
+/data/tilesets/
+/data/index.yaml
+/data/text/
+/data/cutscenes/
+/data/scripts/generated/
+/data/i18n/*/dialogs.yaml
+/data/i18n/*/cutscenes.yaml
+/data/i18n/*/items.yaml
+/data/i18n/*/shops.yaml
+/data/i18n/*/credits.yaml
+# the Tiled editor remembers its windows
+/data/*.tiled-session
+
+# The player's files, next to the executable
+/landstalker.ini
+/landstalker.sav
+/playtest_notes.json
+/screenshots/
+/captures/
+
+# Debug output (LS_SHOT, logs, scratch pictures)
+/*.png
+/*.log
+/*.wav
+/*.txt
+!/README.md
+
+# Python tools
+__pycache__/
+*.pyc
+/tools/emuhawk/ram.lua
+
+# Local ROMs and emulator states
+*.md.bak
+*.State
+/roms/
+
+# Editors and system files
+.vscode/
+.idea/
+*.swp
+*.lnk
+Thumbs.db
+.DS_Store

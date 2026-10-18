@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["crates/ls_data", "crates/lsctl", "crates/ls_game"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+roxmltree = "0.20"
+anyhow = "1"
+bevy = "0.20"
+
+# Bevy is slow in debug builds: optimise the dependencies even in dev profile.
+[profile.dev.package."*"]
+opt-level = 3

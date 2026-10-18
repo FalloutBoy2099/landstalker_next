@@ -1,0 +1,8 @@
+msg 2982 Found Statue of Jypta.
+msg 3100 Found Statue of Jypta.|Took Statue of Jypta.
+msg 3215
+action 4577 273
+action 6027 276
+action 7637 277
+action 8187 278
+action 8457 274

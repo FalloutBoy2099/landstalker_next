@@ -1,0 +1,13 @@
+[package]
+name = "ls_data"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_yaml.workspace = true
+roxmltree.workspace = true
+anyhow.workspace = true
+zstd = "0.14.3"
+crc32fast = "1.5.2"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
