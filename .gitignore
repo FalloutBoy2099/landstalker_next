@@ -20,14 +20,14 @@
 /data/i18n/*/cutscenes.yaml
 /data/i18n/*/items.yaml
 /data/i18n/*/shops.yaml
-/data/i18n/*/credits.yaml
+/data/i18n/*/credit.txt
 # the Tiled editor remembers its windows
 /data/*.tiled-session
 
 # The player's files, next to the executable
 /landstalker.ini
 /landstalker.sav
-/playtest_notes.json
+/playtest_notes.yaml
 /screenshots/
 /captures/
 
@@ -55,3 +55,4 @@ __pycache__/
 *.lnk
 Thumbs.db
 .DS_Store
+recordings/

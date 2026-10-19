@@ -1,0 +1,18 @@
+# what character 233 says, by story progress
+progress:
+- index: 0
+  min: 26
+  node:
+    check_flag: 311
+    set:
+      check_flag: 317
+      set:
+        messages: [dialogs.c233_progress_0_node_set_set_m0]
+      clear:
+        messages: [dialogs.c233_progress_0_node_set_clear_m0, dialogs.c233_progress_0_node_set_clear_m1]
+    clear:
+      messages: [dialogs.c233_progress_0_node_clear_m0]
+- index: 0
+  min: 27
+  node:
+    messages: [dialogs.c233_progress_1_node_m0]

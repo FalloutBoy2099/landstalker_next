@@ -7,7 +7,7 @@ Rejouer un VGM, c'est refaire tourner les puces : rien n'est approximé (ce que 
 pas décrire des instruments FM).
 
 ## Ce que le jeu lit
-`data/audio/music_XX.vgz` (XX = numéro du morceau, en hexadécimal : table de `landstalker_disasm/.../sounds.inc`). Un `.vgz` est
+`data/audio/vgz/music_XX.vgz` (XX = numéro du morceau, en hexadécimal : table de `landstalker_disasm/.../sounds.inc`). Un `.vgz` est
 un `.vgm` compressé avec gzip (le moteur lit aussi un `.vgm` non compressé). Les effets sonores restent des `sfx_XX.flac`.
 `landstalker.ini`, `[audio] music_format = auto | vgm | ogg` : `auto` joue le VGM s'il existe, sinon l'OGG (`music_XX.ogg`).
 

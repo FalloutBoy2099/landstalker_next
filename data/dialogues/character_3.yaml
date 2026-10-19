@@ -1,0 +1,41 @@
+# what character 3 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    yesno:
+      prompt:
+        messages: [dialogs.c3_progress_0_node_yesno_prompt_m0, dialogs.c3_progress_0_node_yesno_prompt_m1, dialogs.c3_progress_0_node_yesno_prompt_m2]
+      'yes':
+        messages: [dialogs.c3_progress_0_node_yesno_yes_m0]
+      'no':
+        messages: [dialogs.c3_progress_0_node_yesno_no_m0]
+- index: 0
+  min: 3
+  node:
+    set_flag_on_talk: 193
+    clear:
+      messages: [dialogs.c3_progress_1_node_clear_m0, dialogs.c3_progress_1_node_clear_m1, dialogs.c3_progress_1_node_clear_m2, dialogs.c3_progress_1_node_clear_m3,
+        dialogs.c3_progress_1_node_clear_m4, dialogs.c3_progress_1_node_clear_m5]
+    set:
+      messages: [dialogs.c3_progress_1_node_set_m0, dialogs.c3_progress_1_node_set_m1]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c3_progress_2_node_m0]
+- index: 0
+  min: 7
+  node:
+    set_flag_on_talk: 218
+    clear:
+      messages: [dialogs.c3_progress_3_node_clear_m0, dialogs.c3_progress_3_node_clear_m1, dialogs.c3_progress_3_node_clear_m2, dialogs.c3_progress_3_node_clear_m3]
+    set:
+      messages: [dialogs.c3_progress_3_node_set_m0, dialogs.c3_progress_3_node_set_m1]
+- index: 0
+  min: 27
+  node:
+    messages: [dialogs.c3_progress_4_node_m0]
+- index: 0
+  min: 29
+  node:
+    messages: [dialogs.c3_progress_5_node_m0, dialogs.c3_progress_5_node_m1, dialogs.c3_progress_5_node_m2, dialogs.c3_progress_5_node_m3]

@@ -1,4 +1,4 @@
-//! Cutscenes: what the story does by itself. A cutscene action (data/text/cutscenes.json) is a list of operations: texts in the
+//! Cutscenes: what the story does by itself. A cutscene action (data/cutscenes/story/*.yaml, one file per area of the game) is a list of operations: texts in the
 //! dialogue box, story flags, sounds, tile swaps, characters appearing and disappearing, going to another room behind a fade, effects
 //! (fades, flashes), Friday the fairy, the player's controls taken away... Port of RoomView::TriggerAction / ContinueCutscene /
 //! StartFx / UpdateFaint / ApplyPendingWarp and of Cutscenes.h of the C++ engine.
@@ -74,8 +74,48 @@ impl Op {
 pub struct Cutscenes {
     root: Value,
     intro_strings: Value,
-    credits: Vec<(i32, char, String)>,
-    playbacks: std::collections::HashMap<i32, Vec<(u8, u32)>>,
+    credits: Vec<CreditLine>,
+}
+
+/// A line of the credits (data/i18n/<language>/credit.txt).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CreditLine {
+    /// a group title, underlined: `[CAST]`
+    Title(String),
+    /// a role, under a title: `*Chief map designer*`
+    Role(String),
+    /// a name (any other line)
+    Name(String),
+    /// an empty line
+    Blank,
+}
+
+/// The credits file: `[Title]` starts a group (three empty lines come before it, unless it is the first), `*Role*` is a role, an empty line is an empty line,
+/// anything else is a name; lines starting with `;` are comments.
+pub fn parse_credits(text: &str) -> Vec<CreditLine> {
+    let mut lines = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim_end();
+        if line.trim_start().starts_with(';') {
+            continue;
+        }
+        let t = line.trim();
+        if t.is_empty() {
+            lines.push(CreditLine::Blank);
+        } else if let Some(title) = t.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+            // (a title right under another one, like STAFF over MAP DESIGN, only gets one)
+            if !lines.is_empty() {
+                let gap = if matches!(lines.last(), Some(CreditLine::Title(_))) { 1 } else { 3 };
+                lines.extend(std::iter::repeat(CreditLine::Blank).take(gap));
+            }
+            lines.push(CreditLine::Title(title.trim().to_string()));
+        } else if let Some(role) = t.strip_prefix('*').and_then(|r| r.strip_suffix('*')) {
+            lines.push(CreditLine::Role(role.trim().to_string()));
+        } else {
+            lines.push(CreditLine::Name(t.to_string()));
+        }
+    }
+    lines
 }
 
 fn int(v: Option<&Value>, default: i32) -> i32 {
@@ -84,36 +124,32 @@ fn int(v: Option<&Value>, default: i32) -> i32 {
 
 impl Cutscenes {
     pub fn load(data: &Path) -> Cutscenes {
-        let read_json = |name: &str| std::fs::read_to_string(data.join("text").join(name)).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).unwrap_or_default();
-        let mut c = Cutscenes { root: read_json("cutscenes.json"), intro_strings: read_json("intro_strings.json"), ..Default::default() };
-        for line in std::fs::read_to_string(data.join("text/credits.txt")).unwrap_or_default().lines() {
-            if line.starts_with('#') || line.trim().is_empty() {
-                continue;
-            }
-            let mut it = line.splitn(3, ' ');
-            let (Some(adv), Some(align)) = (it.next().and_then(|a| a.parse().ok()), it.next().and_then(|a| a.chars().next())) else { continue };
-            c.credits.push((adv, align, it.next().unwrap_or("").to_string()));
-        }
-        for line in std::fs::read_to_string(data.join("text/playback.txt")).unwrap_or_default().lines() {
-            if line.starts_with('#') {
-                continue;
-            }
-            let mut it = line.split_whitespace();
-            let Some(n) = it.next().and_then(|n| n.parse::<i32>().ok()) else { continue };
-            let steps = it.filter_map(|p| p.split_once(':')).filter_map(|(b, f)| Some((u8::from_str_radix(b, 16).ok()?, f.parse::<u32>().ok()?))).collect();
-            c.playbacks.insert(n, steps);
-        }
+        let dir = data.join("cutscenes");
+        let mut c = Cutscenes { intro_strings: crate::yamldata::read(&data.join("scripts/intro/intro_strings.yaml")), ..Default::default() };
+        c.credits = parse_credits(&crate::i18n::credit_text(data));
         c
     }
 
-    pub fn from_json(text: &str) -> Cutscenes {
-        Cutscenes { root: serde_json::from_str(text).unwrap_or_default(), ..Default::default() }
+    /// The language changed (title screen): the credits are read again.
+    pub fn reload_language(&mut self, data: &Path) {
+        self.credits = parse_credits(&crate::i18n::credit_text(data));
+    }
+
+    /// The button presses of a playback sequence (common/cutscenes.lua: `playback_seq`): (pad bits, frames).
+    pub fn playback(&self, n: i32, script: &Scripting) -> Option<Vec<(u8, u32)>> {
+        let steps = script.story_ops("PLAYBACKS", n)?;
+        Some(steps.as_array()?.iter().filter_map(|p| Some((p.get("buttons")?.as_u64()? as u8, p.get("frames")?.as_u64()? as u32))).collect())
+    }
+
+    /// Cutscenes from the text of a YAML tree {actions: {...}, scripts: {...}} (the tests).
+    pub fn from_yaml(text: &str) -> Cutscenes {
+        Cutscenes { root: serde_yaml::from_str::<serde_yaml::Value>(text).map(crate::yamldata::convert).unwrap_or_default(), ..Default::default() }
     }
 
     /// The operations of an action, with the calls into other actions expanded.
-    pub fn action(&self, id: i32) -> Vec<Op> {
+    pub fn action(&self, id: i32, script: Option<&Scripting>) -> Vec<Op> {
         let mut ops = Vec::new();
-        self.expand(id, &mut ops, 0);
+        self.expand(id, &mut ops, 0, script);
         ops
     }
 
@@ -121,30 +157,56 @@ impl Cutscenes {
     pub fn text(&self, id: i32) -> Vec<String> {
         let key = format!("cutscenes.t{}", id);
         if crate::i18n::has(&key) {
-            return crate::i18n::pages(&key).iter().map(|s| format_text(s)).collect();
+            // "Owner: Heh heh heh!" with the lines that follow indented by two spaces, like the original's boxes
+            let who = crate::i18n::speaker(&key).map(|k| crate::i18n::t(&k));
+            return crate::i18n::pages(&key)
+                .iter()
+                .map(|s| {
+                    let text = format_text(s);
+                    match &who {
+                        Some(name) => {
+                            let mut lines = text.lines();
+                            let first = lines.next().unwrap_or("");
+                            let rest: Vec<String> = lines.map(|l| format!("  {}", l)).collect();
+                            std::iter::once(format!("{}: {}", name, first)).chain(rest).collect::<Vec<_>>().join("
+")
+                        }
+                        None => text,
+                    }
+                })
+                .collect();
         }
-        // texts kept in the JSON itself (the tests)
+        // texts kept in the tree itself (the tests)
         self.root.get("texts").and_then(|t| t.get(id.to_string())).and_then(|n| n.as_array()).map(|a| a.iter().filter_map(|s| s.as_str()).map(format_text).collect()).unwrap_or_default()
     }
 
-    fn expand(&self, id: i32, out: &mut Vec<Op>, depth: usize) {
+    /// An action (`which` "STORY") or a routine ("ROUTINES"): a tree kept by the tests, else the one the Lua scripts define (common/cutscenes.lua).
+    fn lookup(&self, which: &str, id: i32, script: Option<&Scripting>) -> Option<Value> {
+        let key = if which == "STORY" { "actions" } else { "scripts" };
+        if let Some(v) = self.root.get(key).and_then(|a| a.get(id.to_string())) {
+            return Some(v.clone());
+        }
+        script.and_then(|s| s.story_ops(which, id))
+    }
+
+    fn expand(&self, id: i32, out: &mut Vec<Op>, depth: usize, script: Option<&Scripting>) {
         if depth > 6 {
             return;
         }
-        if let Some(list) = self.root.get("actions").and_then(|a| a.get(id.to_string())) {
-            self.expand_list(list, out, depth);
+        if let Some(list) = self.lookup("STORY", id, script) {
+            self.expand_list(&list, out, depth, script);
         }
     }
 
-    fn expand_list(&self, list: &Value, out: &mut Vec<Op>, depth: usize) {
+    fn expand_list(&self, list: &Value, out: &mut Vec<Op>, depth: usize, script: Option<&Scripting>) {
         let Some(items) = list.as_array() else { return };
         for o in items {
             if let Some(v) = o.get("text") {
                 // a cutscene id that is a routine of the original: its operations, in place
                 let id = int(Some(v), 0);
-                if let Some(routine) = self.root.get("scripts").and_then(|s| s.get(id.to_string())) {
+                if let Some(routine) = self.lookup("ROUTINES", id, script) {
                     if depth < 8 {
-                        self.expand_list(routine, out, depth + 1);
+                        self.expand_list(&routine, out, depth + 1, script);
                         continue;
                     }
                 }
@@ -166,7 +228,7 @@ impl Cutscenes {
                 op.value = int(Some(v), 0);
                 out.push(op);
             } else if let Some(v) = o.get("call") {
-                self.expand(int(Some(v), 0), out, depth + 1);
+                self.expand(int(Some(v), 0), out, depth + 1, script);
             } else if let Some(v) = o.get("warp") {
                 let mut op = Op::new(Kind::Warp);
                 op.value = int(Some(v), 0);
@@ -221,10 +283,10 @@ impl Cutscenes {
                     None => op.on_answer = true,
                 }
                 if let Some(t) = o.get("then") {
-                    self.expand_list(t, &mut op.then_ops, depth + 1);
+                    self.expand_list(t, &mut op.then_ops, depth + 1, script);
                 }
                 if let Some(e) = o.get("else") {
-                    self.expand_list(e, &mut op.else_ops, depth + 1);
+                    self.expand_list(e, &mut op.else_ops, depth + 1, script);
                 }
                 out.push(op);
             }
@@ -301,10 +363,19 @@ pub struct Cutscene {
     pub track: Option<TrackRun>,
     /// the recording is over: the intro ends
     track_done: bool,
+    /// the room was changed by hand (the panel): the intro and any scene stop, nothing stays black or letterboxed
+    pub abort: bool,
     /// the text of the black message box of a recorded scene (an item found...)
     pub box_text: Option<String>,
+    /// the frame of the recording at which the box of `box_text` opened, and the frame now (the letters are typed one every 2.4 frames)
+    pub box_since: f32,
+    pub track_t: f32,
     /// Friday's place on the screen during a recorded scene (pixels of the 320x224 picture)
     pub friday_screen: Option<(f32, f32)>,
+    /// what Nigel does in a recorded scene: the bits of the original's Player_Action (0 when nothing is recorded)
+    pub track_action: u16,
+    /// seconds since `track_action` last changed
+    pub track_action_t: f32,
 }
 
 /// A recorded scene being played: the frames (60 Hz) it has run, and where it is in its lists of events.
@@ -316,6 +387,9 @@ pub struct TrackRun {
     str_i: usize,
     msg_i: usize,
     action_i: usize,
+    sound_i: usize,
+    /// the song the recording asked for last (none yet: silence; the rooms' own songs are not played in a recorded scene)
+    song: Option<u8>,
     last: Option<(f32, f32, f32)>,
 }
 
@@ -352,8 +426,13 @@ impl Default for Cutscene {
             focus: None,
             track: None,
             track_done: false,
+            abort: false,
             box_text: None,
+            box_since: 0.0,
+            track_t: 0.0,
             friday_screen: None,
+            track_action: 0,
+            track_action_t: 0.0,
         }
     }
 }
@@ -436,8 +515,14 @@ impl Cutscene {
         self.caption = None;
         // test aid: LS_TRACK_AT=frame starts the recording that far in (the room is loaded by the first update)
         let t0 = std::env::var("LS_TRACK_AT").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
-        let (str_i, msg_i, action_i) = (track.strs.partition_point(|s| s.0 <= t0), track.msgs.partition_point(|s| s.0 <= t0), track.actions.partition_point(|s| s.0 <= t0));
-        self.track = Some(TrackRun { track, t: t0, room: first_room, str_i, msg_i, action_i, last: None });
+        let (str_i, msg_i, action_i, sound_i) = (track.strs.partition_point(|s| s.0 <= t0), track.msgs.partition_point(|s| s.0 <= t0), track.actions.partition_point(|s| s.0 <= t0), track.sounds.partition_point(|s| s.0 <= t0));
+        self.track = Some(TrackRun { track, t: t0, room: first_room, str_i, msg_i, action_i, sound_i, song: None, last: None });
+    }
+
+    /// A new game without the intro: the adventure starts in room 148, where the intro ends.
+    pub fn begin_adventure(&mut self) {
+        *self = Cutscene::default();
+        self.arriving = Some(PendingWarp { room: 148, x: 32, y: 38, dir: 2 });
     }
 
     /// A new game: the intro scenes (room 139 and on) run by themselves, the controls are the story's.
@@ -537,13 +622,14 @@ impl Cutscene {
             }
             return;
         }
-        let mut ops = env.cs.action(id);
+        let mut ops = env.cs.action(id, Some(env.script));
         if self.track.is_some() {
-            // a recorded scene has its own rooms, fades, captions and characters: only the talking, sounds, flags and Friday are left
-            ops.retain(|o| matches!(o.kind, Kind::Text | Kind::Flag | Kind::Sound | Kind::Swap | Kind::If | Kind::Wait | Kind::Block));
+            // a recorded scene has its own rooms, fades, captions, sounds, characters and Friday: only the talking is left (the story flags the actions set
+            // would hide characters the recording shows: the original's flags are all clear when the adventure starts)
+            ops.retain(|o| matches!(o.kind, Kind::Text | Kind::Wait));
         }
         if std::env::var("LS_LOG_CUTSCENE").is_ok() {
-            println!("[cutscene] action {} ({} operations) asked by entity {:?}", id, ops.len(), source);
+            println!("[cutscene] action {} ({} operations) asked by entity {:?} (busy {:.2}, box open {}, queued {})", id, ops.len(), source, self.busy, env.dlg.open, self.ops.len());
         }
         if ops.is_empty() {
             return;
@@ -590,7 +676,12 @@ impl Cutscene {
                         }
                         _ => None,
                     };
-                    env.dlg.start_cutscene(pages, op.wait as f32 / 60.0, branch);
+                    if std::env::var("LS_LOG_CUTSCENE").is_ok() {
+                        println!("[cutscene] text {} ({} pages, wait {})", op.value, pages.len(), op.wait);
+                    }
+                    // in a recorded scene every box goes by itself (a wait of 0 would wait for a button for ever)
+                    let wait = if self.track.is_some() { (op.wait as f32).max(1.0) } else { op.wait as f32 };
+                    env.dlg.start_cutscene(pages, wait / 60.0, branch);
                     env.frozen.0 = true;
                     return; // goes on when the last box is dismissed (or the question answered)
                 }
@@ -719,18 +810,28 @@ pub fn cutscene_update(
     (mut dlg, mut frozen, mut combat): (ResMut<Dialogue>, ResMut<GameFrozen>, ResMut<Combat>),
     (mut room, swap): (ResMut<RoomRes>, Option<ResMut<SwapState>>),
     (mut request, mut arrival, mut sound): (ResMut<RoomRequest>, ResMut<Arrival>, ResMut<Sound>),
-    ctl: Res<crate::config::Controls>,
+    _ctl: Res<crate::config::Controls>,
 ) {
     let dt = time.delta_secs().min(0.05);
     let cut = &mut *cut;
     let mut swap = swap;
     let mut env = Env { game: &mut game, script: &script, sfx: &mut sfx, dlg: &mut dlg, frozen: &mut frozen, combat: &mut combat, room: &mut room, swap: swap.as_deref_mut(), cs: &cs };
     if cut.intro {
-        sound.room_song = Some(0x2B); // the intro's music
+        if !cut.tracking() {
+            sound.room_song = Some(0x2B); // the intro's music
+        }
         env.script.set_intro(true);
     }
-    // the intro can be skipped: the adventure starts in room 148
-    if cut.intro && (ctl.attack.just || ctl.action.just || cut.track_done) && cut.arriving.is_none() && cut.pending_warp.is_none() {
+    // a room chosen by hand ends the scene in progress
+    if cut.abort {
+        *cut = Cutscene::default();
+        env.script.set_intro(false);
+        env.dlg.close_all();
+        env.frozen.0 = false;
+        return;
+    }
+    // the end of the intro (it cannot be skipped): the adventure starts in room 148
+    if cut.intro && cut.track_done && cut.arriving.is_none() && cut.pending_warp.is_none() {
         let faint = cut.faint_warp;
         *cut = Cutscene::default();
         cut.faint_warp = faint;
@@ -778,7 +879,7 @@ pub fn cutscene_update(
         cut.hold = cut.hold.max(254.0 / 60.0);
     }
     for n in env.script.take_playbacks() {
-        if let Some(steps) = cs.playbacks.get(&n) {
+        if let Some(steps) = cs.playback(n, env.script) {
             let first = steps.first().map_or(0.0, |s| s.1 as f32 / 60.0);
             cut.playback = Some((steps.clone(), 0, first, n));
         }
@@ -843,10 +944,27 @@ pub fn track_update(
     room: Res<RoomRes>,
     (mut request, mut arrival): (ResMut<RoomRequest>, ResMut<Arrival>),
     mut players: Query<&mut Player>,
+    (mut sfx, mut sound): (ResMut<SfxQueue>, ResMut<Sound>),
+    mut commands: Commands,
+    mut exit: MessageWriter<AppExit>,
+    mut shots: Local<(Vec<f32>, usize)>,
 ) {
     let dt = time.delta_secs().min(0.05);
     let cut = &mut *cut;
     let Some(run) = cut.track.as_mut() else { return };
+    // test aid: LS_TRACK_SHOTS=f1,f2,... takes a picture of the window when the recording reaches each frame, into LS_TRACK_SHOT_DIR (p_<frame>.png), then quits
+    if shots.0.is_empty() && shots.1 == 0 {
+        shots.0 = std::env::var("LS_TRACK_SHOTS").unwrap_or_default().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+        shots.1 = usize::from(shots.0.is_empty()) * usize::MAX / 2;
+    }
+    if shots.1 < shots.0.len() && run.t >= shots.0[shots.1] {
+        let dir = std::env::var("LS_TRACK_SHOT_DIR").unwrap_or_else(|_| ".".into());
+        let path = std::path::PathBuf::from(dir).join(format!("p_{}.png", shots.0[shots.1] as i32));
+        commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
+        shots.1 += 1;
+    } else if shots.1 >= shots.0.len() && !shots.0.is_empty() && shots.1 < usize::MAX / 4 && run.t > shots.0[shots.0.len() - 1] + 30.0 {
+        exit.write(AppExit::Success);
+    }
     // the recording runs on while a conversation is on: the original's pages last their own number of frames (the `wait` of the
     // operations) and what its characters do meanwhile is in the recording
     run.t += dt * 60.0;
@@ -854,6 +972,26 @@ pub fn track_update(
     cut.fx_color = [0, 0, 0];
     cut.fx_level = run.track.fade_at(t);
     cut.friday_screen = run.track.friday_at(t);
+    cut.track_t = t;
+    let action = run.track.pose_at(t);
+    if action != cut.track_action {
+        cut.track_action = action;
+        cut.track_action_t = 0.0;
+    }
+    cut.track_action_t += dt;
+    sound.room_song = run.song;
+    // the sounds the original asked for: songs and sound effects
+    while run.sound_i < run.track.sounds.len() && run.track.sounds[run.sound_i].0 <= t {
+        let id = run.track.sounds[run.sound_i].1;
+        // 0x1xx: the same sound asked for with a flag of the driver (0x159: the rumble of the boulder)
+        let low = (id & 0xFF) as u8;
+        if low < 0x40 && id < 0x100 {
+            run.song = Some(low);
+        } else if low >= 0x40 {
+            sfx.play(low);
+        }
+        run.sound_i += 1;
+    }
     if let Some((frame, next)) = run.track.handover {
         if t >= frame {
             if next == 148 {
@@ -899,7 +1037,8 @@ pub fn track_update(
     }
     while run.msg_i < run.track.msgs.len() && run.track.msgs[run.msg_i].0 <= t {
         let text = run.track.msgs[run.msg_i].1.clone();
-        cut.box_text = if text.is_empty() { None } else { Some(text) };
+        cut.box_text = if text.is_empty() { None } else { Some(box_text_of(&text)) }; // the track holds the key of the text (and the page: key#n)
+        cut.box_since = run.track.msgs[run.msg_i].0;
         run.msg_i += 1;
     }
     if room.room.file.id != run.room {
@@ -907,8 +1046,10 @@ pub fn track_update(
         return; // not loaded yet: the entities are the old room's
     }
     if let (Ok(mut p), Some(s)) = (players.single_mut(), run.track.at(0, t)) {
-        let moved = run.last.is_some_and(|(x, y, _)| (x - s.x).abs() + (y - s.y).abs() > 0.001);
-        let airborne = run.last.is_some_and(|(_, _, z)| (z - s.z).abs() > 0.001);
+        // what Nigel does comes from the original's Player_Action (walking bits 0-3, fall 4, jump 5): carried by a platform he does not walk
+        let recorded = !run.track.poses.is_empty();
+        let moved = if recorded { action & 0x0F != 0 } else { run.last.is_some_and(|(x, y, _)| (x - s.x).abs() + (y - s.y).abs() > 0.001) };
+        let airborne = if recorded { action & 0x30 != 0 } else { run.last.is_some_and(|(_, _, z)| (z - s.z).abs() > 0.001) };
         p.x = s.x;
         p.y = s.y;
         p.z = s.z;
@@ -960,6 +1101,28 @@ pub fn cutscene_arrived(mut cut: ResMut<Cutscene>, mut players: Query<&mut Playe
 // what is seen
 // -------------------------------------------------------------------------------------------------------------------
 
+/// The picture of the game is the original's 320x224 (scaled): what lies beyond it stays black (rooms have characters and scenery that the
+/// original never showed there: room 183 has three people waiting below the screen).
+pub fn viewport_mask(mut contexts: EguiContexts) -> Result {
+    let ctx = contexts.ctx_mut()?.clone();
+    let screen = ctx.content_rect();
+    let area = egui::Rect::from_min_size(screen.min, egui::vec2(screen.width() - crate::playtest::PANEL_W, screen.height()));
+    let (o, k) = crate::picture_origin(area);
+    let (left, right, bottom) = (o.x, o.x + 320.0 * k, o.y + 224.0 * k);
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("viewport_mask")));
+    let black = egui::Color32::BLACK;
+    if bottom < area.bottom() {
+        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(area.left(), bottom), area.max), 0.0, black);
+    }
+    if left > area.left() {
+        painter.rect_filled(egui::Rect::from_min_max(area.min, egui::pos2(left, area.bottom())), 0.0, black);
+    }
+    if right < area.right() {
+        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(right, area.top()), area.max), 0.0, black);
+    }
+    Ok(())
+}
+
 /// Fades and flashes over the game area.
 pub fn fx_overlay(mut contexts: EguiContexts, cut: Res<Cutscene>) -> Result {
     if cut.fx_level <= 0.001 && !cut.letterbox() {
@@ -970,7 +1133,7 @@ pub fn fx_overlay(mut contexts: EguiContexts, cut: Res<Cutscene>) -> Result {
     let area = egui::Rect::from_min_size(screen.min, egui::vec2(screen.width() - crate::playtest::PANEL_W, screen.height()));
     if cut.letterbox() {
         // the scenes of the intro show 160 of the 224 lines of the screen (lines 24 to 184), the rest is black
-        let k = area.width() / 320.0;
+        let (_, k) = crate::picture_origin(area);
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("letterbox")));
         painter.rect_filled(egui::Rect::from_min_max(area.min, egui::pos2(area.right(), area.top() + 24.0 * k)), 0.0, egui::Color32::BLACK);
         painter.rect_filled(egui::Rect::from_min_max(egui::pos2(area.left(), area.top() + 184.0 * k), area.max), 0.0, egui::Color32::BLACK);
@@ -1003,9 +1166,9 @@ pub fn caption_overlay(mut contexts: EguiContexts, cut: Res<Cutscene>, cs: Res<C
     let Some(tex) = tex.as_ref() else { return Ok(()) };
     let Some(s) = cs.intro_strings.get(n.to_string()) else { return Ok(()) };
     let screen = ctx.content_rect();
-    let game_w = screen.width() - crate::playtest::PANEL_W;
-    let k = game_w / 320.0; // the original screen is 320 pixels wide
-    let top = 0.0; // the picture of the game starts at the top of the window (the camera puts Nigel 85 pixels down)
+    let area = egui::Rect::from_min_size(screen.min, egui::vec2(screen.width() - crate::playtest::PANEL_W, screen.height()));
+    let (origin, k) = crate::picture_origin(area);
+    let top = origin.y;
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("caption")));
     for (key, xk, yk) in [("line1", "x1", "y1"), ("line2", "x2", "y2")] {
         let (sx, sy) = (int(s.get(xk), 0), int(s.get(yk), 0));
@@ -1014,7 +1177,7 @@ pub fn caption_overlay(mut contexts: EguiContexts, cut: Res<Cutscene>, cs: Res<C
             if *g <= 0 {
                 continue;
             }
-            let x = ((sx - 0x80) as f32 + i as f32 * 8.0) * k;
+            let x = origin.x + ((sx - 0x80) as f32 + i as f32 * 8.0) * k;
             let y = top + (sy - 0x80) as f32 * k;
             let (u0, u1) = (*g as f32 * 8.0 / tex.size()[0] as f32, (*g as f32 * 8.0 + 8.0) / tex.size()[0] as f32);
             painter.image(tex.id(), egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(8.0 * k, 16.0 * k)), egui::Rect::from_min_max(egui::pos2(u0, 0.0), egui::pos2(u1, 1.0)), egui::Color32::WHITE);
@@ -1023,19 +1186,29 @@ pub fn caption_overlay(mut contexts: EguiContexts, cut: Res<Cutscene>, cs: Res<C
     Ok(())
 }
 
-/// The black message box of the recorded scenes (the original's, at the bottom: white frame, white text on black).
-pub fn scene_box_overlay(mut contexts: EguiContexts, cut: Res<Cutscene>) -> Result {
+/// The text of a box of a recorded scene: `key` or `key#page` of the dictionaries, with the speaker before it when the key has one.
+fn box_text_of(spec: &str) -> String {
+    let (key, page) = spec.split_once('#').map_or((spec, 0), |(k, p)| (k, p.parse().unwrap_or(0)));
+    let pages = crate::i18n::pages(key);
+    let text = format_text(pages.get(page).map_or("", |s| s.as_str()));
+    match crate::i18n::speaker(key).map(|k| crate::i18n::t(&k)) {
+        Some(name) => {
+            let mut lines = text.lines();
+            let first = lines.next().unwrap_or("");
+            std::iter::once(format!("{}: {}", name, first)).chain(lines.map(|l| format!("  {}", l))).collect::<Vec<_>>().join("
+")
+        }
+        None => text,
+    }
+}
+
+/// The message box of the recorded scenes: the same window as every other text of the game (shops::text_box).
+pub fn scene_box_overlay(mut contexts: EguiContexts, cut: Res<Cutscene>, config: Res<crate::config::Config>) -> Result {
     let Some(text) = cut.box_text.as_ref() else { return Ok(()) };
     let ctx = contexts.ctx_mut()?.clone();
-    let screen = ctx.content_rect();
-    let k = (screen.width() - crate::playtest::PANEL_W) / 320.0;
-    let rect = egui::Rect::from_min_max(egui::pos2(screen.left() + 13.0 * k, screen.top() + 165.0 * k), egui::pos2(screen.left() + 307.0 * k, screen.top() + 218.0 * k));
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("scene_box")));
-    painter.rect_filled(rect, 3.0 * k, egui::Color32::BLACK);
-    painter.rect_stroke(rect.shrink(k), 3.0 * k, egui::Stroke::new(k, egui::Color32::WHITE), egui::StrokeKind::Inside);
-    for (i, line) in text.lines().enumerate() {
-        painter.text(egui::pos2(rect.left() + 4.0 * k, rect.top() + (5.0 + 16.0 * i as f32) * k), egui::Align2::LEFT_TOP, line, egui::FontId::monospace(12.0 * k), egui::Color32::WHITE);
-    }
+    // typed one letter a frame (a box of the story: the blips of the original)
+    let typed: String = if cut.box_since > 0.0 { text.chars().take((((cut.track_t - cut.box_since).max(0.0)) / 1.0) as usize + 1).collect() } else { text.clone() };
+    crate::shops::text_box(&ctx, &config.ui, "scene_box", text, &typed, None);
     Ok(())
 }
 
@@ -1047,20 +1220,30 @@ pub fn credits_overlay(mut contexts: EguiContexts, mut cut: ResMut<Cutscene>, cs
     let area = egui::Rect::from_min_size(screen.min, egui::vec2(screen.width() - crate::playtest::PANEL_W, screen.height()));
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("credits")));
     painter.rect_filled(area, 0.0, egui::Color32::BLACK);
+    // a centred list: titles underlined, roles in grey, names in white, empty lines are space
+    const STEP: f32 = 38.0;
     let mut y = area.bottom() - t * 40.0;
     let mut last = y;
-    for (advance, align, text) in &cs.credits {
-        y += *advance as f32 * 16.0;
+    for line in &cs.credits {
         last = y;
-        if y < area.top() - 30.0 || y > area.bottom() + 30.0 {
-            continue;
+        let visible = y > area.top() - 40.0 && y < area.bottom() + 40.0;
+        if visible {
+            let centre = egui::pos2(area.center().x, y);
+            match line {
+                CreditLine::Title(text) => {
+                    let rect = painter.text(centre, egui::Align2::CENTER_TOP, text, egui::FontId::monospace(26.0), egui::Color32::WHITE);
+                    painter.line_segment([egui::pos2(rect.left(), rect.bottom() + 3.0), egui::pos2(rect.right(), rect.bottom() + 3.0)], egui::Stroke::new(2.0, egui::Color32::WHITE));
+                }
+                CreditLine::Role(text) => {
+                    painter.text(centre, egui::Align2::CENTER_TOP, text, egui::FontId::monospace(20.0), egui::Color32::from_gray(170));
+                }
+                CreditLine::Name(text) => {
+                    painter.text(centre, egui::Align2::CENTER_TOP, text, egui::FontId::monospace(24.0), egui::Color32::WHITE);
+                }
+                CreditLine::Blank => {}
+            }
         }
-        let (anchor, x) = match align {
-            'L' => (egui::Align2::LEFT_TOP, area.left() + 40.0),
-            'R' => (egui::Align2::RIGHT_TOP, area.right() - 40.0),
-            _ => (egui::Align2::CENTER_TOP, area.center().x),
-        };
-        painter.text(egui::pos2(x, y), anchor, crate::i18n::t(text), egui::FontId::monospace(22.0), egui::Color32::WHITE);
+        y += STEP;
     }
     if last < area.top() - 40.0 {
         cut.credits = None;
@@ -1135,7 +1318,7 @@ pub fn friday_sprite(
 mod tests {
     use super::*;
 
-    const JSON: &str = r#"{
+    const YAML: &str = r#"{
       "texts": {"1": ["{5B}Hello{57}{5F}{5E}"], "2": ["a", "b"]},
       "scripts": {"77": [{"flag": 5}]},
       "actions": {
@@ -1146,8 +1329,8 @@ mod tests {
 
     #[test]
     fn an_action_expands_its_calls_and_routines() {
-        let c = Cutscenes::from_json(JSON);
-        let ops = c.action(9);
+        let c = Cutscenes::from_yaml(YAML);
+        let ops = c.action(9, None);
         let kinds: Vec<Kind> = ops.iter().map(|o| o.kind).collect();
         // the text 77 is a routine of the original (a flag), the text 1 waits 30 frames
         assert_eq!(kinds, vec![Kind::Flag, Kind::Sound, Kind::Flag, Kind::Text, Kind::If, Kind::Lock]);
@@ -1155,7 +1338,7 @@ mod tests {
         assert_eq!((ops[4].then_ops[0].kind, ops[4].then_ops[0].value, ops[4].then_ops[0].x, ops[4].then_ops[0].dir), (Kind::Warp, 10, 4, 2));
         assert_eq!(ops[4].else_ops[0].name, "fade_out");
         // a call expands in place
-        let ten = c.action(10);
+        let ten = c.action(10, None);
         assert_eq!(ten.len(), 6 + 2);
         assert_eq!(ten[7].cells, vec![(1, 2), (3, 4)]);
         assert_eq!(c.text(1), vec!["Hello\nNigel".to_string()]);
@@ -1185,11 +1368,14 @@ mod tests {
 
     #[test]
     fn the_real_actions_load() {
+        let _lock = crate::i18n::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+        crate::i18n::init(&data, "en");
         let c = Cutscenes::load(&data);
-        assert!(!c.action(29).is_empty(), "action 29 (Nigel wakes up in Massan)");
+        let script = Scripting::new(&data).expect("the scripts load");
+        assert!(!c.action(29, Some(&script)).is_empty(), "action 29 (Nigel wakes up in Massan)");
         assert!(!c.text(5).is_empty());
-        assert!(c.playbacks.get(&0).map_or(false, |p| !p.is_empty()));
+        assert!(c.playback(0, &script).map_or(false, |p| !p.is_empty()));
         assert!(!c.credits.is_empty());
     }
 }

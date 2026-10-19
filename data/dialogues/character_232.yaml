@@ -1,0 +1,15 @@
+# what character 232 says, by story progress
+progress:
+- index: 0
+  min: 26
+  node:
+    check_flag: 311
+    set:
+      messages: [dialogs.c232_progress_0_node_set_m0]
+    clear:
+      messages: [dialogs.c232_progress_0_node_clear_m0]
+- index: 0
+  min: 27
+  node:
+    messages:
+    - {action: 223}

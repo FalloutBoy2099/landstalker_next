@@ -1,0 +1,22 @@
+# what character 127 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c127_progress_0_node_m0, dialogs.c127_progress_0_node_m1]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c127_progress_1_node_m0]
+- index: 0
+  min: 26
+  node:
+    messages: [dialogs.c127_progress_2_node_m0]
+- index: 0
+  min: 27
+  node:
+    messages: [dialogs.c127_progress_3_node_m0]
+- index: 0
+  min: 29
+  node:
+    messages: [dialogs.c127_progress_4_node_m0]

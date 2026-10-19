@@ -23,7 +23,9 @@ const DEATH_PAUSE: f32 = 1.8;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Choice {
     NewGame,
+    NewGameNoIntro,
     Continue,
+    Language,
     Quit,
 }
 
@@ -54,16 +56,16 @@ impl Title {
     }
 
     /// The items of the title menu with whether each can be chosen.
-    fn items(&self) -> [(&'static str, bool); 3] {
-        [("NEW GAME", true), ("CONTINUE", self.can_continue), ("QUIT", true)]
+    fn items(&self) -> [(&'static str, bool); 5] {
+        [("ui.title.start_intro", true), ("ui.title.start_no_intro", true), ("ui.title.continue", self.can_continue), ("ui.title.language", true), ("ui.title.quit", true)]
     }
 
     fn over_items(&self) -> [(&'static str, bool); 3] {
-        [("CONTINUE", true), ("LOAD GAME", self.can_continue), ("QUIT TO TITLE", true)]
+        [("ui.game_over.continue", true), ("ui.game_over.load_game", self.can_continue), ("ui.game_over.quit_to_title", true)]
     }
 
     fn pause_items(&self) -> [(&'static str, bool); 4] {
-        [("RESUME", true), ("LOAD GAME", self.can_continue), ("QUIT TO TITLE", true), ("QUIT", true)]
+        [("ui.pause.resume", true), ("ui.pause.load_game", self.can_continue), ("ui.pause.quit_to_title", true), ("ui.pause.quit", true)]
     }
 }
 
@@ -90,6 +92,8 @@ pub fn title_input(
     mut game: ResMut<GameState>,
     mut combat: ResMut<Combat>,
     mut cut: ResMut<Cutscene>,
+    mut cs: ResMut<crate::cutscene::Cutscenes>,
+    mut config: ResMut<crate::config::Config>,
     script: NonSend<Scripting>,
     mut sound: ResMut<Sound>,
     mut sfx: ResMut<SfxQueue>,
@@ -124,26 +128,51 @@ pub fn title_input(
             title.selected = step(title.selected, 1, &items);
             sfx.play(0x42);
         }
+        // the language: left / right (or the action key) go through the languages that have a dictionary
+        if title.selected == 3 {
+            let step_lang = if ctl.dir[3].just || ctl.action.just || ctl.attack.just || ctl.jump.just { 1 } else if ctl.dir[2].just { -1 } else { 0 };
+            if step_lang != 0 {
+                let languages = crate::i18n::available_languages(&data.0);
+                if let Some(i) = languages.iter().position(|l| *l == crate::i18n::language()).or(Some(0)).filter(|_| !languages.is_empty()) {
+                    let next = languages[(i as i32 + step_lang).rem_euclid(languages.len() as i32) as usize].clone();
+                    crate::i18n::init(&data.0, &next);
+                    cs.reload_language(&data.0);
+                    config.save_language(&next);
+                    config.language = next;
+                    sfx.play(0x42);
+                }
+            }
+            return;
+        }
         if (ctl.action.just || ctl.attack.just || ctl.jump.just) && items[title.selected].1 {
             sfx.play(0x43);
-            let choice = [Choice::NewGame, Choice::Continue, Choice::Quit][title.selected];
+            let choice = [Choice::NewGame, Choice::NewGameNoIntro, Choice::Continue, Choice::Language, Choice::Quit][title.selected];
             match choice {
                 Choice::Quit => {
                     exit.write(AppExit::Success);
                 }
-                Choice::NewGame => {
-                    // the adventure from its start: nothing carried over, the intro scenes (room 139) run by the story
+                Choice::Language => {}
+                Choice::NewGame | Choice::NewGameNoIntro => {
+                    // the adventure from its start: nothing carried over
                     game.reset();
                     script.replace_flags(&[]);
                     combat.revive();
                     combat.charge = 0.0;
-                    // the intro as the original plays it, recorded from the ROM (data/cutscenes/intro.track), else the story's own scripts
-                    match std::fs::read_to_string(data.0.join("cutscenes/intro.track")) {
-                        Ok(text) => cut.begin_intro_track(crate::track::Track::parse(&text), 139),
-                        Err(_) => cut.begin_intro(),
+                    if choice == Choice::NewGame {
+                        // the intro scenes (room 139) as the original plays them, recorded from the ROM (data/scripts/intro/intro.track), else the story's own
+                        // scripts; once started it cannot be skipped
+                        match std::fs::read_to_string(data.0.join("scripts/intro/intro.track")) {
+                            Ok(text) => cut.begin_intro_track(crate::track::Track::parse(&text), 139),
+                            Err(_) => cut.begin_intro(),
+                        }
+                        request.0 = Some(139);
+                        arrival.0 = Some(Vec2::new(62.5, 24.5));
+                    } else {
+                        // straight to where the intro ends: room 148
+                        cut.begin_adventure();
+                        request.0 = Some(148);
+                        arrival.0 = Some(Vec2::new(32.5, 38.5));
                     }
-                    request.0 = Some(139);
-                    arrival.0 = Some(Vec2::new(62.5, 24.5));
                     title.active = false;
                     frozen.0 = false;
                     msg.time = 0.0;
@@ -157,7 +186,7 @@ pub fn title_input(
                         arrival.0 = Some(Vec2::new(s.x, s.y));
                         title.active = false;
                         frozen.0 = false;
-                        msg.show("Game loaded.");
+                        msg.show(crate::i18n::t("messages.save.loaded"));
                     }
                 }
             }
@@ -194,7 +223,7 @@ pub fn title_input(
                         combat.revive();
                         request.0 = Some(s.room);
                         arrival.0 = Some(Vec2::new(s.x, s.y));
-                        msg.show("Game loaded.");
+                        msg.show(crate::i18n::t("messages.save.loaded"));
                     }
                 }
                 _ => {
@@ -231,7 +260,7 @@ pub fn title_input(
                         combat.revive();
                         request.0 = Some(s.room);
                         arrival.0 = Some(Vec2::new(s.x, s.y));
-                        msg.show("Game loaded.");
+                        msg.show(crate::i18n::t("messages.save.loaded"));
                     }
                     close = true;
                 }
@@ -283,11 +312,11 @@ pub fn title_overlay(mut contexts: EguiContexts, title: Res<Title>, mut textures
         egui::Area::new(egui::Id::new("game_over")).fixed_pos(egui::pos2(area.center().x - 200.0, area.center().y - 110.0)).interactable(false).show(&ctx, |ui| {
             egui::Frame::new().fill(egui::Color32::from_rgba_unmultiplied(20, 20, 60, 245)).stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 220, 240))).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
                 ui.set_min_width(380.0);
-                ui.label(egui::RichText::new("GAME OVER").size(30.0).color(egui::Color32::from_rgb(240, 90, 90)));
+                ui.label(egui::RichText::new(crate::i18n::t("ui.game_over.title")).size(30.0).color(egui::Color32::from_rgb(240, 90, 90)));
                 ui.add_space(10.0);
                 for (i, (label, enabled)) in title.over_items().iter().enumerate() {
                     let color = if !enabled { egui::Color32::DARK_GRAY } else if i == title.over_index { egui::Color32::from_rgb(250, 230, 120) } else { egui::Color32::WHITE };
-                    ui.label(egui::RichText::new(format!("{} {}{}", if i == title.over_index { ">" } else { " " }, label, if *enabled { "" } else { " (NO SAVE)" })).size(24.0).monospace().color(color));
+                    ui.label(egui::RichText::new(format!("{} {}{}", if i == title.over_index { ">" } else { " " }, crate::i18n::t(label), if *enabled { String::new() } else { crate::i18n::t("ui.title.no_save") })).size(24.0).monospace().color(color));
                 }
             });
         });
@@ -297,11 +326,11 @@ pub fn title_overlay(mut contexts: EguiContexts, title: Res<Title>, mut textures
         egui::Area::new(egui::Id::new("pause")).fixed_pos(egui::pos2(area.center().x - 200.0, area.center().y - 130.0)).interactable(false).show(&ctx, |ui| {
             egui::Frame::new().fill(egui::Color32::from_rgba_unmultiplied(20, 20, 60, 245)).stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 220, 240))).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
                 ui.set_min_width(380.0);
-                ui.label(egui::RichText::new("PAUSE").size(26.0).color(egui::Color32::WHITE));
+                ui.label(egui::RichText::new(crate::i18n::t("ui.pause.title")).size(26.0).color(egui::Color32::WHITE));
                 ui.add_space(10.0);
                 for (i, (label, enabled)) in title.pause_items().iter().enumerate() {
                     let color = if !enabled { egui::Color32::DARK_GRAY } else if i == title.pause_index { egui::Color32::from_rgb(250, 230, 120) } else { egui::Color32::WHITE };
-                    ui.label(egui::RichText::new(format!("{} {}{}", if i == title.pause_index { ">" } else { " " }, label, if *enabled { "" } else { " (NO SAVE)" })).size(24.0).monospace().color(color));
+                    ui.label(egui::RichText::new(format!("{} {}{}", if i == title.pause_index { ">" } else { " " }, crate::i18n::t(label), if *enabled { String::new() } else { crate::i18n::t("ui.title.no_save") })).size(24.0).monospace().color(color));
                 }
             });
         });
@@ -320,7 +349,7 @@ pub fn title_overlay(mut contexts: EguiContexts, title: Res<Title>, mut textures
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("title")));
     painter.rect_filled(area, 0.0, egui::Color32::BLACK);
     let Some((picture, climax)) = pics.as_ref() else {
-        painter.text(area.center(), egui::Align2::CENTER_CENTER, "LANDSTALKER", egui::FontId::monospace(48.0), egui::Color32::WHITE);
+        painter.text(area.center(), egui::Align2::CENTER_CENTER, crate::i18n::t("ui.title.logo_fallback"), egui::FontId::monospace(48.0), egui::Color32::WHITE);
         return Ok(());
     };
     let centred = |w: f32, h: f32| egui::Rect::from_center_size(area.center(), egui::vec2(w, h));
@@ -347,12 +376,14 @@ pub fn title_overlay(mut contexts: EguiContexts, title: Res<Title>, mut textures
     painter.image(picture.id(), shown, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(reveal, 1.0)), egui::Color32::WHITE);
     if title.ready() {
         // between the logo and the copyright line of the picture (the C++ engine puts its menu box there)
-        let y = rect.min.y + 560.0 * scale / 4.0;
+        let y = rect.min.y + 520.0 * scale / 4.0;
         for (i, (label, enabled)) in title.items().iter().enumerate() {
             let selected = i == title.selected;
             let color = if !enabled { egui::Color32::DARK_GRAY } else if selected { egui::Color32::from_rgb(250, 230, 120) } else { egui::Color32::WHITE };
-            let text = format!("{} {}{}", if selected { ">" } else { " " }, label, if *enabled { "" } else { " (NO SAVE)" });
-            painter.text(egui::pos2(area.center().x, y + i as f32 * 36.0 * scale / 4.0), egui::Align2::CENTER_CENTER, text, egui::FontId::monospace(28.0), color);
+            let name = crate::config::LANGUAGES.iter().find(|(code, _)| *code == crate::i18n::language()).map_or("", |(_, name)| *name);
+            let label_text = if *label == "ui.title.language" { crate::i18n::tf(label, &[("name", name.to_string())]) } else { crate::i18n::t(label) };
+            let text = format!("{} {}{}", if selected { ">" } else { " " }, label_text, if *enabled { String::new() } else { crate::i18n::t("ui.title.no_save") });
+            painter.text(egui::pos2(area.center().x, y + i as f32 * 34.0 * scale / 4.0), egui::Align2::CENTER_CENTER, text, egui::FontId::monospace(28.0), color);
         }
     }
     Ok(())
@@ -364,11 +395,11 @@ mod tests {
 
     #[test]
     fn the_cursor_skips_what_cannot_be_chosen() {
-        let items = [("NEW GAME", true), ("CONTINUE", false), ("QUIT", true)];
-        assert_eq!(step(0, 1, &items), 2);
-        assert_eq!(step(2, 1, &items), 0);
-        assert_eq!(step(0, -1, &items), 2);
-        assert_eq!(step(2, -1, &items), 0);
+        let items = [("ui.title.start_intro", true), ("ui.title.start_no_intro", true), ("ui.title.continue", false), ("ui.title.language", true), ("ui.title.quit", true)];
+        assert_eq!(step(1, 1, &items), 3);
+        assert_eq!(step(4, 1, &items), 0);
+        assert_eq!(step(0, -1, &items), 4);
+        assert_eq!(step(3, -1, &items), 1);
     }
 
     #[test]
@@ -378,8 +409,9 @@ mod tests {
         assert!(!t.ready());
         t.time = CLIMAX_END + REVEAL_TIME;
         assert!(t.ready());
-        assert!(!t.items()[1].1, "no save, no continue");
+        assert!(!t.items()[2].1, "no save, no continue");
+        assert!(t.items()[0].1 && t.items()[1].1, "both ways to start a game");
         t.can_continue = true;
-        assert!(t.items()[1].1);
+        assert!(t.items()[2].1);
     }
 }

@@ -1,0 +1,11 @@
+# what character 56 says, by story progress
+progress:
+- index: 0
+  min: 24
+  node:
+    messages:
+    - {action: 198}
+- index: 0
+  min: 25
+  node:
+    messages: [dialogs.c56_progress_1_node_m0]

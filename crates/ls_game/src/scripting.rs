@@ -1,4 +1,4 @@
-//! Lua scripting: the entities of a room are Lua tables (`ents`), their behaviours coroutines of data/scripts/global.lua
+//! Lua scripting: the entities of a room are Lua tables (`ents`), their behaviours coroutines of data/scripts (main.lua, common/, behaviors/, rooms/)
 //! (the original's bytecode translated by tools/behaviours_to_lua.py, or hand-made scripts). This module is the bridge:
 //! it fills `ents` when a room is loaded, gives the scripts the functions they call (collisions, flags, the player...)
 //! and reads the entities back for the renderer and the physics.
@@ -113,7 +113,7 @@ impl Scripting {
 
     fn new_inner(data_dir: &Path) -> mlua::Result<Scripting> {
         let lua = Lua::new();
-        let triggers = Triggers::load(&data_dir.join("text/triggers.txt"));
+        let triggers = Triggers::load(&data_dir.join("triggers.yaml"));
         let preset: HashSet<i32> = std::env::var("LS_FLAGS").unwrap_or_default().split(',').filter_map(|t| t.trim().parse().ok()).collect(); // test aid
         let shared = Rc::new(RefCell::new(Shared { room: None, flags: preset, kinds: HashMap::new(), triggers, log: std::env::var("LS_LOG_SCRIPT").is_ok(), sfx: Vec::new(), swaps_dirty: false, rules_dirty: false, cutscenes: Vec::new(), playbacks: Vec::new(), intro: false, camera: None, pause: false }));
         let g = lua.globals();
@@ -128,6 +128,26 @@ impl Scripting {
                     lua.load(text).set_name(rel).exec()
                 })?,
             )?;
+        }
+        {
+            // every .lua file of a folder of the scripts, in alphabetical order
+            let dir = scripts_dir.clone();
+            g.set(
+                "dofile_dir",
+                lua.create_function(move |lua, rel: String| {
+                    let Ok(entries) = std::fs::read_dir(dir.join(&rel)) else { return Ok(()) };
+                    let mut files: Vec<_> = entries.flatten().map(|e| e.path()).filter(|p| p.extension().map_or(false, |e| e == "lua")).collect();
+                    files.sort();
+                    for file in files {
+                        let name = format!("{}/{}", rel, file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+                        let text = std::fs::read_to_string(&file).map_err(mlua::Error::external)?;
+                        lua.load(text).set_name(name).exec()?;
+                    }
+                    Ok(())
+                })?,
+            )?;
+            let dir = scripts_dir.clone();
+            g.set("script_exists", lua.create_function(move |_, rel: String| Ok(dir.join(&rel).exists()))?)?;
         }
         g.set("log", lua.create_function(|_, s: String| { println!("[lua] {}", s); Ok(()) })?)?;
         {
@@ -222,6 +242,8 @@ impl Scripting {
                 sh.borrow_mut().cutscenes.push((source, id));
                 Ok(())
             })?)?;
+            // t(key): the text of an i18n key in the language of the game (scripts only handle keys, never texts)
+            g.set("t", lua.create_function(|_, key: String| Ok(crate::i18n::t(&key)))?)?;
             let sh = shared.clone();
             g.set("request_pause", lua.create_function(move |_, ()| {
                 sh.borrow_mut().pause = true;
@@ -283,14 +305,12 @@ impl Scripting {
         {
             // what the enemies leave behind: DROPS[kind] = { item, one_in }
             let drops = lua.create_table()?;
-            for line in std::fs::read_to_string(data_dir.join("text/enemy_drops.txt")).unwrap_or_default().lines() {
-                let n: Vec<i32> = line.split_whitespace().filter_map(|t| t.parse().ok()).collect();
-                if !line.starts_with('#') && n.len() == 3 {
-                    let row = lua.create_table()?;
-                    row.set("item", n[1])?;
-                    row.set("one_in", n[2])?;
-                    drops.set(n[0], row)?;
-                }
+            let enemies = crate::yamldata::read(&data_dir.join("enemies.yaml"));
+            for (kind, d) in crate::yamldata::int_keys(enemies.get("drops").unwrap_or(&serde_json::Value::Null)) {
+                let row = lua.create_table()?;
+                row.set("item", d.get("item").and_then(|v| v.as_i64()).unwrap_or(0))?;
+                row.set("one_in", d.get("one_in").and_then(|v| v.as_i64()).unwrap_or(1))?;
+                drops.set(kind, row)?;
             }
             g.set("DROPS", drops)?;
         }
@@ -306,8 +326,8 @@ impl Scripting {
         g.set("P", player)?;
         g.set("ents", lua.create_table()?)?;
 
-        let text = std::fs::read_to_string(scripts_dir.join("global.lua")).map_err(mlua::Error::external)?;
-        lua.load(text).set_name("global.lua").exec()?;
+        let text = std::fs::read_to_string(scripts_dir.join("main.lua")).map_err(mlua::Error::external)?;
+        lua.load(text).set_name("main.lua").exec()?;
         drop(g);
         Ok(Scripting { lua, shared })
     }
@@ -322,6 +342,15 @@ impl Scripting {
     }
 
     /// New room: `ents` is rebuilt from the room file and every script restarts.
+    /// A story action (`which` = "STORY") or a routine ("ROUTINES") defined by the scripts (common/cutscenes.lua), as a tree for the cutscene engine.
+    pub fn story_ops(&self, which: &str, id: i32) -> Option<serde_json::Value> {
+        let table = self.lua.globals().get::<Table>(which).ok()?;
+        match table.get::<mlua::Value>(id).ok()? {
+            mlua::Value::Nil => None,
+            v => Some(lua_to_json(&v, 0)),
+        }
+    }
+
     pub fn load_room(&mut self, room: &Room) -> Result<()> {
         self.load_room_inner(room).map_err(|e| anyhow!("{}", e))
     }
@@ -558,6 +587,18 @@ impl Scripting {
         s.rules_dirty = true;
     }
 
+    /// Sets or clears a story flag (the debug panel): the tile swaps and the entities' rules follow.
+    pub fn set_flag_to(&self, n: i32, on: bool) {
+        let mut s = self.shared.borrow_mut();
+        if on {
+            s.flags.insert(n);
+        } else {
+            s.flags.remove(&n);
+        }
+        s.swaps_dirty = true;
+        s.rules_dirty = true;
+    }
+
     /// The story flags that are set.
     pub fn flags(&self) -> Vec<i32> {
         self.shared.borrow().flags.iter().copied().collect()
@@ -765,7 +806,13 @@ fn step_entity(lua: &Lua, s: &Shared, e: &Table, noclip: bool) -> bool {
     let known = s.kinds.get(&kind).map_or(false, |k| k.known);
     // rafts (53) glide over water and a rolling boulder (20) follows its corridor: the heightmap allows neither (but
     // they are stopped by the other objects: the blocks that hold the boulder of room 18 back)
-    if !noclip && known && !can_stand(lua, s, e, nx, ny, z, kind == 53 || kind == 20, true, Some((DX[o], DY[o])), 0.0) {
+    // the platforms and the raft do not look at the cells (the original skips the heightmap test for them: the wooden platform of room 179 slides up to the
+    // walkway, which is higher than its feet, and docks there)
+    const PLATFORMS: [i32; 8] = [21, 53, 76, 89, 90, 93, 113, 114];
+    if !noclip && known && !can_stand(lua, s, e, nx, ny, z, PLATFORMS.contains(&kind) || kind == 20, true, Some((DX[o], DY[o])), 0.0) {
+        if std::env::var("LS_DBG_STEP").is_ok() && kind == 53 {
+            println!("[step] raft blocked at ({:.2},{:.2}) -> ({:.2},{:.2}) z {:.2}: hits_others={}", x, y, nx, ny, z, hits_others(lua, s, e, nx, ny, z, true));
+        }
         return false;
     }
     let _ = e.set("x", nx);
@@ -830,9 +877,12 @@ fn can_stand(lua: &Lua, s: &Shared, e: &Table, x: f32, y: f32, z: f32, ignore_ce
 fn hits_others(lua: &Lua, s: &Shared, e: &Table, x: f32, y: f32, z: f32, hop: bool) -> bool {
     let half = get_f(e, "hbase") - 0.02;
     let top = z + get_f(e, "hheight");
+    let mover_hostile = get_b(e, "hostile");
     if let Ok(p) = lua.globals().get::<Table>("P") {
         let (px, py, pz) = (get_f(&p, "x"), get_f(&p, "y"), get_f(&p, "z"));
-        if (x - px).abs() < half + 0.4 && (y - py).abs() < half + 0.4 && pz < top && pz + 2.0 > z {
+        // a platform (a raft, a lift) is not stopped by the player standing on it (feet within a step of its top), it carries him
+        let stands_on_it = !mover_hostile && pz >= top - 0.6;
+        if !stands_on_it && (x - px).abs() < half + 0.4 && (y - py).abs() < half + 0.4 && pz < top && pz + 2.0 > z {
             return true;
         }
     }
@@ -847,8 +897,14 @@ fn hits_others(lua: &Lua, s: &Shared, e: &Table, x: f32, y: f32, z: f32, hop: bo
                 continue;
             }
             let (oh, otop, oz) = (get_f(&o, "hbase"), get_f(&o, "z") + get_f(&o, "hheight"), get_f(&o, "z"));
+            // enemies do not stop each other (two that overlapped would be stuck for ever)
+            if mover_hostile && get_b(&o, "hostile") {
+                continue;
+            }
             let platform = !get_b(&o, "hostile") && !get_b(&o, "talks") && !get_b(&o, "dying") && !s.kinds.get(&kind).map_or(false, |k| k.killable);
-            if hop && platform && otop <= z + 0.6 {
+            // low objects are rolled over: a pressure plate, the blocks that fell in the way of the boulder of room 159 (it follows Nigel to the pit)
+            let over = if e.get::<i32>("kind").unwrap_or(0) == 20 { 1.1 } else { 0.6 };
+            if hop && platform && otop <= z + over {
                 continue;
             }
             if (x - get_f(&o, "x")).abs() < half + oh && (y - get_f(&o, "y")).abs() < half + oh && z < otop && top > oz {
@@ -860,7 +916,7 @@ fn hits_others(lua: &Lua, s: &Shared, e: &Table, x: f32, y: f32, z: f32, hop: bo
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// trigger programs (data/text/triggers.txt), the small routines of the original that WaitForCondition runs
+// trigger programs (data/triggers.yaml), the small routines of the original that WaitForCondition runs
 // ---------------------------------------------------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
@@ -909,23 +965,13 @@ fn parse_var(s: &str) -> Var {
 }
 
 impl Triggers {
+    /// `path` = data/triggers.yaml: program number -> its instructions, one per line.
     pub fn load(path: &Path) -> Triggers {
         let mut programs: HashMap<i32, Vec<Ins>> = HashMap::new();
-        let text = std::fs::read_to_string(path).unwrap_or_default();
-        let mut current: Option<i32> = None;
-        for line in text.lines() {
-            let line = line.trim_end();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some(n) = line.strip_prefix("TA ") {
-                current = n.trim().parse().ok();
-                if let Some(c) = current {
-                    programs.entry(c).or_default();
-                }
-                continue;
-            }
-            let Some(c) = current else { continue };
+        let tree = crate::yamldata::read(path);
+        for (c, lines) in crate::yamldata::int_keys(&tree) {
+            programs.entry(c).or_default();
+            for line in lines.as_array().map(|a| a.as_slice()).unwrap_or(&[]).iter().filter_map(|l| l.as_str()) {
             let mut it = line.split_whitespace();
             let Some(op) = it.next() else { continue };
             let args: Vec<&str> = it.collect();
@@ -944,6 +990,7 @@ impl Triggers {
                 }
             };
             programs.entry(c).or_default().push(ins);
+            }
         }
         Triggers { programs }
     }
@@ -1031,5 +1078,40 @@ impl Triggers {
             pc += 1;
         }
         false
+    }
+}
+
+/// A Lua value as a JSON-like tree (a table with the keys 1..n is a list, any other a mapping).
+fn lua_to_json(v: &mlua::Value, depth: usize) -> serde_json::Value {
+    use serde_json::Value as J;
+    if depth > 16 {
+        return J::Null;
+    }
+    match v {
+        mlua::Value::Boolean(b) => J::Bool(*b),
+        mlua::Value::Integer(i) => J::from(*i),
+        mlua::Value::Number(n) => J::from(*n),
+        mlua::Value::String(s) => J::String(s.to_string_lossy().to_string()),
+        mlua::Value::Table(t) => {
+            let len = t.raw_len();
+            let pairs: Vec<(mlua::Value, mlua::Value)> = t.pairs::<mlua::Value, mlua::Value>().flatten().collect();
+            if len > 0 && pairs.len() == len {
+                J::Array((1..=len).filter_map(|i| t.raw_get::<mlua::Value>(i).ok()).map(|x| lua_to_json(&x, depth + 1)).collect())
+            } else if pairs.is_empty() {
+                J::Array(Vec::new())
+            } else {
+                let mut map = serde_json::Map::new();
+                for (k, x) in pairs {
+                    let key = match k {
+                        mlua::Value::String(s) => s.to_string_lossy().to_string(),
+                        mlua::Value::Integer(i) => i.to_string(),
+                        _ => continue,
+                    };
+                    map.insert(key, lua_to_json(&x, depth + 1));
+                }
+                J::Object(map)
+            }
+        }
+        _ => J::Null,
     }
 }

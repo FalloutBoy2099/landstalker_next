@@ -1,0 +1,14 @@
+# what character 33 says, by story progress
+progress:
+- index: 0
+  min: 16
+  node:
+    set_flag_on_talk: 202
+    clear:
+      messages: [dialogs.c33_progress_0_node_clear_m0, dialogs.c33_progress_0_node_clear_m1, dialogs.c33_progress_0_node_clear_m2, dialogs.c33_progress_0_node_clear_m3]
+    set:
+      messages: [dialogs.c33_progress_0_node_set_m0]
+- index: 0
+  min: 19
+  node:
+    messages: [dialogs.c33_progress_1_node_m0, dialogs.c33_progress_1_node_m1]

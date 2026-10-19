@@ -1,0 +1,14 @@
+# what character 47 says, by story progress
+progress:
+- index: 0
+  min: 18
+  node:
+    messages: [dialogs.c47_progress_0_node_m0]
+- index: 0
+  min: 23
+  node:
+    messages: [dialogs.c47_progress_1_node_m0]
+- index: 0
+  min: 29
+  node:
+    messages: [dialogs.c47_progress_2_node_m0]

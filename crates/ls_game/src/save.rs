@@ -25,6 +25,9 @@ pub struct SaveData {
     pub sword: i32,
     pub armour: i32,
     pub boots: i32,
+    /// the ring worn (saves from before the rings have none)
+    #[serde(default = "no_ring")]
+    pub ring: i32,
     pub status: u8,
     pub progress: i32,
     pub flags: Vec<i32>,
@@ -40,6 +43,10 @@ pub fn path_of(data: &Path) -> PathBuf {
 }
 
 /// The adventure as it is: in `room`, at (x, y).
+fn no_ring() -> i32 {
+    -1
+}
+
 pub fn snapshot(game: &GameState, script: &Scripting, room: i32, x: f32, y: f32) -> SaveData {
     let mut items: Vec<(i32, i32)> = game.items.iter().filter(|(_, n)| **n > 0).map(|(i, n)| (*i, *n)).collect();
     items.sort();
@@ -63,6 +70,7 @@ pub fn snapshot(game: &GameState, script: &Scripting, room: i32, x: f32, y: f32)
         sword: game.sword,
         armour: game.armour,
         boots: game.boots,
+        ring: game.ring,
         status: game.status,
         progress: game.progress,
         flags,
@@ -82,6 +90,7 @@ pub fn restore(save: &SaveData, game: &mut GameState, script: &Scripting) {
     game.sword = save.sword;
     game.armour = save.armour;
     game.boots = save.boots;
+    game.ring = if crate::game::is_ring(save.ring) { save.ring } else { -1 };
     game.status = save.status;
     game.progress = save.progress;
     game.opened = save.opened.iter().copied().collect();
@@ -99,6 +108,13 @@ pub fn read(path: &Path) -> Option<SaveData> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
+/// The buttons Save / Load of the debug panel ask for the same as the keys.
+#[derive(Resource, Default)]
+pub struct SaveRequest {
+    pub save: bool,
+    pub load: bool,
+}
+
 /// F5 saves, F9 loads.
 #[allow(clippy::too_many_arguments)]
 pub fn save_load(
@@ -114,24 +130,26 @@ pub fn save_load(
     mut msg: ResMut<Message>,
     mut sfx: ResMut<SfxQueue>,
     cut: Res<crate::cutscene::Cutscene>,
+    mut request_button: ResMut<SaveRequest>,
     players: Query<&Player>,
 ) {
-    if frozen.0 || cut.active() || (!ctl.save.just && !ctl.load.just) {
+    let (want_save, want_load) = (ctl.save.just || std::mem::take(&mut request_button.save), ctl.load.just || std::mem::take(&mut request_button.load));
+    if frozen.0 || cut.active() || (!want_save && !want_load) {
         return;
     }
     let path = path_of(&data.0);
-    if ctl.save.just {
+    if want_save {
         let Ok(p) = players.single() else { return };
         if combat.dead {
             return;
         }
         let ok = write(&path, &snapshot(&game, &script, room.room.file.id, p.x, p.y));
         sfx.play(if ok { 0x43 } else { 0x44 });
-        msg.show(if ok { "Game saved." } else { "The game could not be saved." });
+        msg.show(crate::i18n::t(if ok { "messages.save.saved" } else { "messages.save.save_failed" }));
     } else {
         let Some(save) = read(&path) else {
             sfx.play(0x44);
-            msg.show("There is no saved game.");
+            msg.show(crate::i18n::t("messages.save.no_save"));
             return;
         };
         restore(&save, &mut game, &script);
@@ -139,7 +157,7 @@ pub fn save_load(
         combat.revive();
         request.0 = Some(save.room);
         arrival.0 = Some(Vec2::new(save.x, save.y));
-        msg.show("Game loaded.");
+        msg.show(crate::i18n::t("messages.save.loaded"));
     }
 }
 

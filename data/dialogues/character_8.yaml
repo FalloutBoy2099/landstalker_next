@@ -1,0 +1,48 @@
+# what character 8 says, by story progress
+progress:
+- index: 0
+  min: 1
+  node:
+    messages:
+    - {set_flag: 0}
+    - {action: 8}
+- index: 0
+  min: 2
+  node:
+    check_flag: 18
+    set:
+      messages: [dialogs.c8_progress_1_node_set_m0, dialogs.c8_progress_1_node_set_m1, dialogs.c8_progress_1_node_set_m2]
+    clear:
+      messages: [dialogs.c8_progress_1_node_clear_m0]
+- index: 0
+  min: 3
+  node:
+    messages: [dialogs.c8_progress_2_node_m0, dialogs.c8_progress_2_node_m1, dialogs.c8_progress_2_node_m2]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c8_progress_3_node_m0, dialogs.c8_progress_3_node_m1, dialogs.c8_progress_3_node_m2]
+- index: 0
+  min: 8
+  node:
+    messages: [dialogs.c8_progress_4_node_m0, dialogs.c8_progress_4_node_m1, dialogs.c8_progress_4_node_m2]
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c8_progress_5_node_m0]
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c8_progress_6_node_m0, dialogs.c8_progress_6_node_m1]
+- index: 0
+  min: 23
+  node:
+    messages: [dialogs.c8_progress_7_node_m0, dialogs.c8_progress_7_node_m1]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c8_progress_8_node_m0, dialogs.c8_progress_8_node_m1, dialogs.c8_progress_8_node_m2, dialogs.c8_progress_8_node_m3]
+- index: 0
+  min: 26
+  node:
+    messages: [dialogs.c8_progress_9_node_m0, dialogs.c8_progress_9_node_m1, dialogs.c8_progress_9_node_m2, dialogs.c8_progress_9_node_m3]

@@ -1,0 +1,25 @@
+-- Behaviours of room 60 (what its entities do: the scenes of the room, its platforms and gates). `behaviour: n` of room.yaml picks B[n].
+
+B[282] = function(e)
+  playback(23)
+  tile_swap(1)
+  move_noclip(e, 24)
+  turn(e, 3)
+  move_noclip(e, 72)
+  turn(e, 2)
+  move_noclip(e, 32)
+  turn(e, 3)
+  move_noclip(e, 32)
+  turn(e, 0)
+  move_wait(e, 16)
+  move_wait(e, 16)
+  move_wait(e, 16)
+  move_wait(e, 16)
+  move_wait(e, 16)
+  move_noclip(e, 24)
+  turn(e, 1)
+  move_noclip(e, 16)
+  turn(e, 0)
+  move_noclip(e, 24)
+  e.visible = false; e.base_visible = false; do return end
+end

@@ -1,0 +1,14 @@
+# what character 70 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    messages: [dialogs.c70_progress_0_node_m0]
+- index: 0
+  min: 2
+  node:
+    messages: [dialogs.c70_progress_1_node_m0]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c70_progress_2_node_m0]

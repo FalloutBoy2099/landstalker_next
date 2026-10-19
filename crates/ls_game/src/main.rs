@@ -4,10 +4,12 @@
 //! Arrow keys: Up = NW (-x), Down = SE (+x), Left = SW (+y), Right = NE (-y) like the C++ engine. Esc: the pause menu.
 
 mod assets;
+mod bot;
 mod audio;
 mod combat;
 mod cutscene;
 mod dialogue;
+mod effects;
 mod config;
 mod game;
 mod i18n;
@@ -16,17 +18,21 @@ mod physics;
 mod playtest;
 mod save;
 mod scripting;
+mod shadows;
 mod shops;
 mod swaps;
+mod tas;
 mod title;
 mod track;
+mod versions;
+mod yamldata;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::asset::AssetPlugin;
 use bevy::window::WindowResolution;
-use bevy_egui::{input::egui_wants_any_keyboard_input, EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{egui, input::egui_wants_any_keyboard_input, EguiInput, EguiPlugin, EguiPreUpdateSet, EguiPrimaryContextPass};
 use ls_data::sprites::{Dir, Directions, Pic, Poses, SpriteDef};
 use ls_data::{room_dir, Entity as RoomEntity, Room};
 use physics::{Body, Solid, Tuning, World};
@@ -45,6 +51,13 @@ use std::path::PathBuf;
 const SCALE: f32 = 4.0;
 /// where the original's screen puts Nigel's torso, in pixels of the picture from the top of the screen (measured on the ROM running in EmuHawk)
 const NIGEL_SCREEN_Y: f32 = 85.0;
+
+/// Where the original's 320x224 picture is drawn in the game area: its top-left corner, and the screen pixels per pixel of the picture (the
+/// map's scale): Nigel is in the middle of the area and 85 pixels of the picture from the top. The boxes, bars and captions of the story
+/// use it, so they sit where the original has them whatever the size of the window.
+pub fn picture_origin(area: bevy_egui::egui::Rect) -> (bevy_egui::egui::Pos2, f32) {
+    (bevy_egui::egui::pos2(area.center().x - 160.0 * SCALE, area.top()), SCALE)
+}
 const HEIGHT_UNIT_PX: f32 = 16.0;
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -200,6 +213,10 @@ struct RoomRequest(Option<i32>);
 #[derive(Resource, Default)]
 struct Arrival(Option<Vec2>);
 
+/// The cell of the door Nigel came in by when a raft was waiting for him: the raft may carry him over that door without it taking him back through it.
+#[derive(Resource, Default)]
+struct RaftArrival(Option<(i32, i32)>);
+
 /// How Nigel arrives: 0 as given, 1 falling (the nearest floor if there is none there), 2 by a ladder, 3 by an elevator.
 #[derive(Resource, Default)]
 struct ArrivalMode(u8);
@@ -274,7 +291,8 @@ struct ThrownItem {
 
 const LIFT_TIME: f32 = 0.4;
 const CARRY_HEIGHT: f32 = 2.0;
-const LIFTABLE: [i32; 4] = [22, 17, 14, 15];
+// crates, vases, ... and the books of the churches (their shelves: shops::church_books)
+const LIFTABLE: [i32; 10] = [22, 17, 14, 15, 227, 225, 226, 209, 228, 238];
 
 #[derive(Component)]
 struct PlayerSprite;
@@ -363,6 +381,10 @@ impl CoverMap {
 /// Where the player appears when nothing else is said: on the first door of the room; a door that is a staircase is a
 /// hole in the floor level, so he is put on the nearest plain floor next to it.
 fn start_of(room: &Room) -> Vec2 {
+    // a room where a raft carries him (163, 165...): he starts on it, the raft goes as soon as the room opens
+    if let Some(r) = room.file.entities.iter().find(|e| e.kind == 53 && (e.behaviour == 35 || e.behaviour == 36)) {
+        return Vec2::new(r.position[0] as f32, r.position[1] as f32);
+    }
     let Some(w) = room.file.warps.first() else { return Vec2::new(30.0, 30.0) };
     let (wx, wy) = (w.area[0], w.area[1]);
     let on_stairs = room.cell_at_world(wx, wy).map_or(false, |c| c.floor_type == 5);
@@ -489,6 +511,26 @@ fn floor_effects(
     }
 }
 
+/// Test aid: LS_DUMP_CELLS=x0,y0,x1,y1 prints the heights of the cells (## blocked, s stairs) of the room that opens.
+fn dump_cells(room: &Room) {
+    let Some(v) = std::env::var("LS_DUMP_CELLS").ok().map(|v| v.split(',').filter_map(|n| n.trim().parse::<i32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 4) else { return };
+    println!("[cells] room {} x {}..{} (columns), y {}..{} (rows)", room.file.id, v[0], v[2], v[1], v[3]);
+    for y in v[1]..=v[3] {
+        let row: Vec<String> = (v[0]..=v[2]).map(|x| room.cell_at_world(x, y).map_or("  .".to_string(), |c| if c.blocked() { " ##".to_string() } else { format!("{:3}{}", c.height, if c.floor_type == 5 { "s" } else if c.floor_type == 0x0E { "c" } else if matches!(c.floor_type, 0x11..=0x18 | 0x1E..=0x25) { "!" } else { "" }) })).collect();
+        println!("[cells] {:3} {}", y, row.join(" "));
+    }
+}
+
+/// The doors of a room, read from its room.yaml (what a replacing version uses).
+fn original_warps(data: &std::path::Path, room: i32) -> Vec<ls_data::Warp> {
+    #[derive(serde::Deserialize)]
+    struct WarpsOnly {
+        #[serde(default)]
+        warps: Vec<ls_data::Warp>,
+    }
+    std::fs::read_to_string(room_dir(data, room).join("room.yaml")).ok().and_then(|t| serde_yaml::from_str::<WarpsOnly>(&t).ok()).map(|w| w.warps).unwrap_or_default()
+}
+
 fn room_res(room: Room) -> RoomRes {
     let block_h = room.file.map.blocks.size[1];
     let (hm_left, hm_top) = (room.file.map.legacy.heightmap_left, room.file.map.legacy.heightmap_top);
@@ -509,15 +551,24 @@ fn main() {
     if config.log_script {
         std::env::set_var("LS_LOG_SCRIPT", "1");
     }
+    combat::ONE_HIT_KILL.store(config.one_hit_kill, std::sync::atomic::Ordering::Relaxed);
     let args: Vec<String> = std::env::args().skip(1).collect();
     // LS_NEWGAME=1: the adventure from its start, the intro scenes (room 139) run by the story
     let new_game = std::env::var("LS_NEWGAME").is_ok();
-    let room_id: i32 = args.first().and_then(|a| a.parse().ok()).unwrap_or(if new_game { 139 } else { 18 });
+    // LS_NOINTRO=1 with it: the adventure starts in room 148 (the intro cannot be skipped, so tests that do not need it start here)
+    let intro = new_game && std::env::var("LS_NOINTRO").is_err();
+    // the TAS the game starts from (landstalker.ini `tas_start_room`): its room, its place, its flags
+    let tas_from = tas::start_file(&root, &config);
+    let tas_start_given = std::env::var("LS_TAS_START").ok();
+    let room_id: i32 = args.first().and_then(|a| a.parse().ok()).or(tas_from.as_ref().map(|t| t.room)).unwrap_or(if intro { 139 } else if new_game { 148 } else if config.start_room > 0 { config.start_room } else { 18 });
     let data = root.join("data");
     let room = Room::load(&room_dir(&data, room_id)).unwrap_or_else(|e| panic!("room {}: {:#}", room_id, e));
+    dump_cells(&room);
     let start = match (args.get(1), args.get(2)) {
         (Some(x), Some(y)) => Vec2::new(x.parse().unwrap_or(30.0), y.parse().unwrap_or(30.0)),
-        _ if new_game => Vec2::new(62.5, 24.5),
+        _ if tas_from.as_ref().is_some_and(|t| t.room == room_id) => tas_from.as_ref().map_or(Vec2::ZERO, |t| Vec2::new(t.start.x, t.start.y)),
+        _ if intro => Vec2::new(62.5, 24.5),
+        _ if new_game => Vec2::new(32.5, 38.5),
         _ => start_of(&room),
     };
     let index = ls_data::load_index(&data).expect("index.yaml");
@@ -567,17 +618,28 @@ fn main() {
                 .set(ImagePlugin::default_nearest()),
         )
         .add_plugins(EguiPlugin::default())
+        .add_plugins(effects::EffectsPlugin)
+        .insert_resource(effects::EffectsData::load(&root.join("data")))
+        .add_systems(Update, shadows::object_shadows)
+        .add_systems(PreUpdate, tab_is_for_the_game.after(EguiPreUpdateSet::ProcessInput).before(EguiPreUpdateSet::BeginPass))
         .insert_resource(ClearColor(Color::BLACK))
         .insert_resource(room_res(room))
         .insert_resource(Sprites { entities: entities.entities, player, chest, player_cpu: HashMap::new(), player_texture: Handle::default() })
         .insert_resource(StartPos(start))
+        .insert_resource(tas::TasPlayer::default())
+        .insert_resource(tas::TasStartFrom(tas_from))
+        .add_systems(Startup, tas::apply_start.after(setup))
+        .add_systems(Update, tas::tas_record.after(read_controls))
         .insert_resource(Solids(Vec::new()))
         .insert_resource(CpuImages::default())
         .insert_resource(config.clone())
         .insert_resource({
-            let mut g = GameState::with_names(&files.read_string("text/items.txt").unwrap_or_default());
+            let mut g = GameState::with_names(&yamldata::read(&data.join("items.yaml")));
             if let Some(n) = std::env::var("LS_HP").ok().and_then(|v| v.parse().ok()) {
                 g.set_max_hp(n); // test aid: more health
+            }
+            if let Some(n) = std::env::var("LS_HURT").ok().and_then(|v| v.parse::<f32>().ok()) {
+                g.damage(n); // test aid: that many points of health lost
             }
             // test aids: LS_ITEMS="id:count,..." gives items, LS_STATUS="poison,confusion,paralysis,curse" the ailments
             for part in std::env::var("LS_ITEMS").unwrap_or_default().split(',') {
@@ -605,6 +667,7 @@ fn main() {
         })
         .insert_resource(Message::default())
         .insert_resource(ChestOpen::default())
+        .insert_resource(save::SaveRequest::default())
         .insert_resource(files)
         .insert_resource(config.audio.clone())
         .insert_resource(Controls::default())
@@ -620,8 +683,12 @@ fn main() {
         .insert_resource(shops::Dialogue::default())
         .insert_resource({
             let mut c = cutscene::Cutscene::default();
-            if new_game {
-                match std::fs::read_to_string(data.join("cutscenes/intro.track")) {
+            // test aid: LS_CREDITS=seconds shows the credits of the ending, that far into their scroll
+            if let Some(t) = std::env::var("LS_CREDITS").ok().and_then(|v| v.parse::<f32>().ok()) {
+                c.credits = Some(t);
+            }
+            if intro {
+                match std::fs::read_to_string(data.join("scripts/intro/intro.track")) {
                     Ok(text) => c.begin_intro_track(track::Track::parse(&text), 139),
                     Err(_) => c.begin_intro(),
                 }
@@ -630,12 +697,15 @@ fn main() {
         })
         .insert_resource(cutscene::Cutscenes::load(&data))
         // no argument: the title screen (LS_NOTITLE=1 goes straight to the game, LS_TITLE=1 shows the title with an argument)
-        .insert_resource(title::Title::new(std::env::var("LS_TITLE").is_ok() || (args.is_empty() && !new_game && std::env::var("LS_NOTITLE").is_err())))
-        .insert_resource(dialogue::Dialogues::load(&data.join("text/dialogue.json")))
+        .insert_resource(title::Title::new(std::env::var("LS_TITLE").is_ok() || (args.is_empty() && !new_game && std::env::var("LS_NOTITLE").is_err() && config.start_room <= 0 && config.tas_start_room <= 0 && tas_start_given.is_none())))
+        .insert_resource(dialogue::Dialogues::load(&data.join("dialogues")))
         .insert_resource(GameFrozen::default())
         .insert_resource(ControlLock::default())
+        .init_resource::<bot::Recorder>()
         .insert_resource(RoomRequest::default())
         .insert_resource(Arrival::default())
+        .init_resource::<RaftArrival>()
+        .insert_resource(versions::RoomVersions::load(&data))
         .insert_resource(ArrivalMode::default())
         .insert_resource(RoomIndex(index.rooms.iter().map(|r| r.id).collect()))
         .insert_resource(DataDir(data.clone()))
@@ -645,11 +715,12 @@ fn main() {
         .add_systems(Update, apply_room_request)
         .add_systems(
             Update,
-            (walk, animate_player.after(walk), toggle_camera, room_keys, warps.after(walk), follow_camera.after(walk), log_entities).run_if(not(egui_wants_any_keyboard_input)).after(apply_room_request),
+            (walk, animate_player.after(walk), toggle_camera, pause_key, room_keys, warps.after(walk), follow_camera.after(walk), log_entities).run_if(not(egui_wants_any_keyboard_input)).after(apply_room_request),
         )
         .add_systems(Update, (interact.run_if(not(egui_wants_any_keyboard_input)), update_carry.after(interact), update_chest.after(interact), script_tick.after(update_carry), sync_entities.after(script_tick)).after(apply_room_request).after(walk))
         .add_systems(Update, title::title_input.after(read_controls).before(shops::dialogue_input).before(shops::talk).before(menu::menu_input).before(combat::attack_input).before(walk).before(interact).before(save::save_load))
         .add_systems(Update, shops::dialogue_input.after(read_controls).before(shops::talk).before(menu::menu_input).before(combat::attack_input).before(walk).before(interact).run_if(not(egui_wants_any_keyboard_input)))
+        .add_systems(Update, shops::church_books.after(shops::dialogue_input))
         .add_systems(Update, shops::talk.after(read_controls).before(menu::menu_input).before(combat::attack_input).before(walk).before(interact).run_if(not(egui_wants_any_keyboard_input)))
         .add_systems(Update, menu::menu_input.after(read_controls).before(combat::attack_input).before(walk).before(interact).run_if(not(egui_wants_any_keyboard_input)))
         .add_systems(Update, save::save_load.after(read_controls).before(combat::attack_input).run_if(not(egui_wants_any_keyboard_input)))
@@ -660,14 +731,14 @@ fn main() {
         .add_systems(Update, playtest::capture_hotkey.run_if(|c: Res<Config>| c.playtest_panel))
         .add_systems(Update, debug_shot)
         .add_systems(PostUpdate, camera_parity.before(bevy::camera::visibility::VisibilitySystems::CalculateBounds).before(bevy::transform::TransformSystems::Propagate))
-        .add_systems(Update, autoplay.before(read_controls))
+        .add_systems(Update, (autoplay, bot::bot, tas::tas_play).before(read_controls)).add_systems(Update, minimize_for_tests).add_systems(Update, bot::record.after(read_controls))
         .add_systems(Update, read_controls.before(walk).before(interact))
         .add_systems(Update, animate_tiles)
         .add_systems(Update, floor_effects.after(walk))
         .add_systems(Update, update_swaps.after(script_tick))
         .add_systems(Update, (audio::play_sfx, audio::play_music, drain_script_sfx.before(audio::play_sfx)))
         .add_systems(EguiPrimaryContextPass, playtest::panel.run_if(|c: Res<Config>| c.playtest_panel))
-        .add_systems(EguiPrimaryContextPass, (game::message_overlay, game::hud_overlay, menu::menu_overlay, shops::dialogue_overlay, cutscene::fx_overlay, cutscene::caption_overlay, cutscene::scene_box_overlay, cutscene::credits_overlay, title::title_overlay))
+        .add_systems(EguiPrimaryContextPass, (game::message_overlay, game::hud_overlay, menu::menu_overlay, shops::dialogue_overlay, cutscene::viewport_mask, cutscene::fx_overlay, cutscene::caption_overlay, cutscene::scene_box_overlay, cutscene::credits_overlay, title::title_overlay))
         .run();
 }
 
@@ -676,7 +747,7 @@ struct StartPos(Vec2);
 
 /// Walking into the area of a door or a staircase goes to the room behind it. Nothing happens again until Nigel has left the
 /// areas of the room he arrives in (he may arrive on one).
-fn warps(room: Res<RoomRes>, index: Res<RoomIndex>, player: Query<&Player>, mut request: ResMut<RoomRequest>, mut arrival: ResMut<Arrival>, mut state: Local<(i32, bool)>) {
+fn warps(mut sfx: ResMut<SfxQueue>, mut raft: ResMut<RaftArrival>, mut was_in: Local<bool>, room: Res<RoomRes>, index: Res<RoomIndex>, player: Query<&Player>, mut request: ResMut<RoomRequest>, mut arrival: ResMut<Arrival>, mut state: Local<(i32, bool)>) {
     let Ok(p) = player.single() else { return };
     let (cx, cy) = (p.x.floor() as i32, p.y.floor() as i32);
     let found = room.room.file.warps.iter().find(|w| cx >= w.area[0] && cx < w.area[0] + w.area[2] && cy >= w.area[1] && cy < w.area[1] + w.area[3]);
@@ -684,11 +755,24 @@ fn warps(room: Res<RoomRes>, index: Res<RoomIndex>, player: Query<&Player>, mut 
     if state.0 != room.room.file.id + 1 {
         *state = (room.room.file.id + 1, true);
     }
+    // the door under the raft he arrived on: ignored while he is carried over it
+    if let Some(cell) = raft.0 {
+        let area = room.room.file.warps.iter().find(|w| cell.0 >= w.area[0] && cell.0 < w.area[0] + w.area[2] && cell.1 >= w.area[1] && cell.1 < w.area[1] + w.area[3]).map(|w| w.area);
+        if area.is_some() && found.map(|w| w.area) == area {
+            *was_in = true;
+            state.1 = true;
+            return;
+        } else if *was_in {
+            *was_in = false;
+            raft.0 = None;
+        }
+    }
     match found {
         None => state.1 = false,
         Some(w) if !state.1 && request.0.is_none() => {
             if index.contains(w.target_room) {
                 println!("warp {:?} -> room {} cell {:?}", w.kind, w.target_room, w.target_cell);
+                sfx.play(0x55); // SND_Door
                 request.0 = Some(w.target_room);
                 arrival.0 = Some(Vec2::new(w.target_cell[0] as f32 + 0.5, w.target_cell[1] as f32 + 0.5));
             } else {
@@ -711,10 +795,25 @@ fn room_keys(ctl: Res<Controls>, room: Res<RoomRes>, index: Res<RoomIndex>, mut 
     };
     if let Some(id) = index.neighbour(room.room.file.id, dir) {
         request.0 = Some(id);
+        versions::ask_directly();
     }
 }
 
 /// Test aid: LS_AUTOPLAY="1.0:+ArrowUp;1.5:-ArrowUp;2:+ShiftLeft" presses (+) and releases (-) keys at those times (seconds).
+/// Test aid: LS_MINIMIZED=1 (set by tools/run_game.py) minimizes the window as soon as it exists, so a test run never gets in the way (with LS_SHOT the
+/// window is off the screen instead: a minimized window draws nothing to take a picture of).
+fn minimize_for_tests(mut windows: Query<&mut Window>, mut done: Local<bool>) {
+    if *done || std::env::var("LS_MINIMIZED").is_err() {
+        return;
+    }
+    *done = true;
+    if std::env::var("LS_SHOT").is_err() {
+        for mut w in &mut windows {
+            w.set_minimized(true);
+        }
+    }
+}
+
 fn autoplay(time: Res<Time>, mut keys: ResMut<ButtonInput<KeyCode>>, mut done: Local<usize>) {
     let Ok(spec) = std::env::var("LS_AUTOPLAY") else { return };
     let steps: Vec<(f32, bool, KeyCode)> = spec
@@ -737,7 +836,7 @@ fn autoplay(time: Res<Time>, mut keys: ResMut<ButtonInput<KeyCode>>, mut done: L
                 "F5" => KeyCode::F5,
                 "F9" => KeyCode::F9,
                 "KeyE" => KeyCode::KeyE,
-                _ => return None,
+                other => crate::config::parse_key(other)?,
             };
             Some((t.parse().ok()?, press, key))
         })
@@ -769,6 +868,14 @@ fn camera_parity(windows: Query<&Window>, mut cam: Query<&mut Transform, With<Ca
 }
 
 /// Debug: LS_SHOT=file.png saves the window after a second and quits.
+/// Tab is a key of the game (the item menu), and egui would take it to move the focus to the next widget of the debug panel (which then also takes the other keys):
+/// egui does not get to hear it.
+fn tab_is_for_the_game(mut inputs: Query<&mut EguiInput>) {
+    for mut input in &mut inputs {
+        input.events.retain(|e| !matches!(e, egui::Event::Key { key: egui::Key::Tab, .. }));
+    }
+}
+
 fn debug_shot(mut commands: Commands, time: Res<Time>, mut done: Local<bool>, mut exit: MessageWriter<AppExit>) {
     let Ok(path) = std::env::var("LS_SHOT") else { return };
     if !*done && time.elapsed_secs() > std::env::var("LS_SHOT_AT").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(3.0) {
@@ -795,7 +902,7 @@ fn setup(
     set_room_song(&room.room, &mut sound);
     // Nigel's picture is rebuilt every time it changes (see animate_player)
     sprites.player_texture = images.add(Image::new(Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, TextureDimension::D2, vec![0, 0, 0, 0], TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default()));
-    spawn_room(&mut commands, &asset_server, &mut layouts, &mut images, &files, &room, &mut sprites, start.0);
+    spawn_room(&mut commands, &asset_server, &mut layouts, &mut images, &files, &room, &mut sprites, start.0, None);
     if let Err(e) = script.load_room(&room.room) {
         println!("scripts: {:#}", e);
     }
@@ -818,14 +925,26 @@ fn apply_room_request(
     mut script: NonSendMut<Scripting>,
     mut thrown: ResMut<Thrown>,
     mut sound: ResMut<Sound>,
-    files: Res<DataFiles>,
+    (files, versions): (Res<DataFiles>, Res<versions::RoomVersions>),
 ) {
-    let Some(id) = request.0.take() else { return };
+    let Some(requested) = request.0.take() else { return };
+    // a door leads to the first version of a room: the story flags choose the one that opens (a room asked for by hand is shown as it is)
+    let id = if versions::take_direct() { requested } else { versions.redirect(requested, |f| script.flag(f)) };
+    if id != requested {
+        println!("[room] a door to {} opens {} (story flags)", requested, id);
+    }
     let t0 = std::time::Instant::now();
     let log_time = std::env::var("LS_LOG_TIMING").is_ok();
     thrown.0.clear();
     let room = match Room::load(&room_dir(&data.0, id)) {
-        Ok(r) => r,
+        Ok(mut r) => {
+            // a replacing version has no doors of its own: it has those of the room it replaces
+            let first = versions.original(id);
+            if r.file.warps.is_empty() && first != id {
+                r.file.warps = original_warps(&data.0, first);
+            }
+            r
+        }
         Err(e) => {
             println!("room {}: {:#}", id, e);
             return;
@@ -840,11 +959,27 @@ fn apply_room_request(
     let start = arrival.0.take().map(|a| if arrival_mode == 0 { outside_warps(&room, a) } else { arrival_cell(&room, a, arrival_mode) }).unwrap_or_else(|| start_of(&room));
     set_room_song(&room, &mut sound);
     *room_res_mut = room_res(room);
-    spawn_room(&mut commands, &asset_server, &mut layouts, &mut images, &files, &room_res_mut, &mut sprites, start);
-    let t_spawn = t0.elapsed();
     if let Err(e) = script.load_room(&room_res_mut.room) {
         println!("scripts: {:#}", e);
     }
+    // he arrives on top of a raft that carries him (rooms 163 to 169: behaviours 35 to 38): on it, not inside it or on the bank. The other rafts (the one that falls
+    // down the waterfall, rooms 498 and 426) are not his: he arrives where the door or the fall puts him
+    let carrying: Vec<usize> = room_res_mut.room.file.entities.iter().enumerate().filter(|(_, e)| e.kind == 53 && (35..=38).contains(&e.behaviour)).map(|(i, _)| i).collect();
+    let raft = script.entities().iter().find(|e| carrying.contains(&e.index) && (e.x - start.x).abs() <= 5.0 && (e.y - start.y).abs() <= 5.0).map(|e| (Vec2::new(e.x, e.y), e.z + e.hheight, e.hbase));
+    let (start, on_raft) = match raft {
+        // on the raft, in its middle (the door he came in by may be under it: see RaftArrival)
+        Some((at, top, _)) => {
+            commands.insert_resource(RaftArrival(Some((start.x.floor() as i32, start.y.floor() as i32))));
+            (at, Some(top))
+        }
+        None => {
+            commands.insert_resource(RaftArrival(None));
+            (start, None)
+        }
+    };
+    spawn_room(&mut commands, &asset_server, &mut layouts, &mut images, &files, &room_res_mut, &mut sprites, start, on_raft);
+    let t_spawn = t0.elapsed();
+    dump_cells(&room_res_mut.room);
     if let Ok(mut w) = windows.single_mut() {
         w.title = format!("Landstalker next - room {}", id);
     }
@@ -853,7 +988,7 @@ fn apply_room_request(
     }
 }
 
-fn spawn_room(commands: &mut Commands, asset_server: &AssetServer, layouts: &mut Assets<TextureAtlasLayout>, images: &mut Assets<Image>, files: &DataFiles, room: &RoomRes, sprites: &mut Sprites, start: Vec2) {
+fn spawn_room(commands: &mut Commands, asset_server: &AssetServer, layouts: &mut Assets<TextureAtlasLayout>, images: &mut Assets<Image>, files: &DataFiles, room: &RoomRes, sprites: &mut Sprites, start: Vec2, start_top: Option<f32>) {
 
     let id = room.room.file.id;
     let dir = format!("rooms/room_{:03}", id);
@@ -943,7 +1078,7 @@ fn spawn_room(commands: &mut Commands, asset_server: &AssetServer, layouts: &mut
     commands.insert_resource(TileAnims { blocks: blocks.clone(), groups, clock: 0.0 });
 
     // Nigel
-    let start_z = std::env::var("LS_START_Z").ok().and_then(|v| v.parse().ok()).unwrap_or_else(|| room.floor_height(start.x.floor() as i32, start.y.floor() as i32)); // (test aid)
+    let start_z = std::env::var("LS_START_Z").ok().and_then(|v| v.parse().ok()).unwrap_or_else(|| start_top.unwrap_or_else(|| room.floor_height(start.x.floor() as i32, start.y.floor() as i32))); // (test aid)
     let player = Player { x: start.x, y: start.y, z: start_z, vz: 0.0, grounded: true, air_peak: f32::MIN, facing: 3, anim_time: 0.0, moving: false, last_key: None, carrying: None, carried_solid: true, lift_phase: 0, lift_t: 0.0, drop: Vec3::ZERO, climbing: false };
     children.push(commands.spawn((player, PlayerSprite, Sprite::from_image(sprites.player_texture.clone()), Transform::default())).id());
     commands.entity(root).add_children(&children);
@@ -1250,11 +1385,17 @@ fn interact(ctl: Res<Controls>, mut game: ResMut<GameState>, mut msg: ResMut<Mes
         let direction_held = ctl.dir.iter().any(|b| b.pressed);
         if p.grounded && !direction_held {
             // put it down: on the cell in front of him (exactly one cell on, like the original), from over his head, and it falls there
-            let nx = p.x + DIR_X[f];
-            let ny = p.y + DIR_Y[f];
+            let (mut nx, mut ny) = (p.x + DIR_X[f], p.y + DIR_Y[f]);
+            // on a counter or a lectern (floor type 0x0E) what he puts down lies in the middle of the cell
+            if room.room.cell_at_world(nx.floor() as i32, ny.floor() as i32).is_some_and(|c| c.floor_type == 0x0E) {
+                (nx, ny) = (nx.floor() + 0.5, ny.floor() + 0.5);
+            }
             let mut z = script.cell_floor(nx, ny, e.hbase);
             if let Some(top) = platform_top(&snaps, nx, ny, p.z + CARRY_HEIGHT, i, e.hbase) {
                 z = z.max(top);
+            }
+            if std::env::var("LS_LOG_DROP").is_ok() {
+                println!("[drop] facing {} at ({:.2},{:.2}) z {:.2} -> ({:.2},{:.2}) floor {:.2}: step ok {} can_place {}", p.facing, p.x, p.y, p.z, nx, ny, z, z <= p.z + 1.0 + 1e-4, script.can_place(i, nx, ny, z));
             }
             if z <= p.z + 1.0 + 1e-4 && script.can_place(i, nx, ny, z) {
                 script.set_f(i, "x", nx);
@@ -1294,7 +1435,9 @@ fn interact(ctl: Res<Controls>, mut game: ResMut<GameState>, mut msg: ResMut<Mes
             continue;
         }
         let top = e.z + e.hheight;
-        if p.z >= top || p.z + physics::PLAYER_HEIGHT <= e.z || (p.z - e.z).abs() > 0.8 {
+        // (a book on its shelf is at the height of Nigel's waist: it can be taken from the floor)
+        let reach = if e.kind >= 200 { 1.2 } else { 0.8 };
+        if p.z >= top || p.z + physics::PLAYER_HEIGHT <= e.z || (p.z - e.z).abs() > reach {
             continue;
         }
         let d = ((qx - e.x).powi(2) + (qy - e.y).powi(2)).sqrt();
@@ -1308,6 +1451,7 @@ fn interact(ctl: Res<Controls>, mut game: ResMut<GameState>, mut msg: ResMut<Mes
         script.set_b(i, "solid", false);
         script.set_b(i, "falls", false);
         p.carrying = Some(i);
+        p.drop = Vec3::new(snaps[i].x, snaps[i].y, snaps[i].z);
         p.lift_phase = 1;
         p.lift_t = 0.0;
         sfx.play(0x43); // CursorSelect
@@ -1327,7 +1471,7 @@ fn interact(ctl: Res<Controls>, mut game: ResMut<GameState>, mut msg: ResMut<Mes
             continue;
         }
         if game.opened.contains(&(file.id, e.index)) {
-            msg.show("The chest is empty.");
+            msg.show(crate::i18n::t("messages.pickup.chest_empty"));
             return;
         }
         game.opened.insert((file.id, e.index));
@@ -1351,6 +1495,7 @@ fn update_chest(
     mut msg: ResMut<Message>,
     mut sfx: ResMut<SfxQueue>,
     mut sound: ResMut<Sound>,
+    settings: Res<audio::AudioSettings>,
     roots: Query<Entity, With<WorldRoot>>,
     mut item: Query<&mut Transform, With<ChestItem>>,
 ) {
@@ -1368,18 +1513,23 @@ fn update_chest(
                 let gold = [5, 20, 50, 200][(v - 58) as usize];
                 game.gold += gold;
                 sfx.play(0x6A);
-                msg.show(format!("Found {} gold", gold));
+                msg.show(i18n::tf("messages.pickup.found_gold", &[("n", gold.to_string())]));
             }
-            63 | -1 => msg.show("The chest is empty."),
+            63 | -1 => msg.show(crate::i18n::t("messages.pickup.chest_empty")),
             v if v >= 0x40 => {
                 game.gold += v - 0x40;
                 sfx.play(0x6A);
-                msg.show(format!("Found {} gold", v - 0x40));
+                msg.show(i18n::tf("messages.pickup.found_gold", &[("n", (v - 0x40).to_string())]));
             }
             v => {
-                sound.request_jingle(0x05, 2.6); // MusicChestOpen
+                // the fanfare of the chest (MusicChestOpen): over the music of the room, or in its place like the original
+                if settings.chest_keeps_music {
+                    sound.request_over(0x05);
+                } else {
+                    sound.request_jingle(0x05, 2.6);
+                }
                 game.add_item(v);
-                msg.show(format!("Opened the chest: {}", game.item_name(v)));
+                msg.show(i18n::tf("messages.pickup.chest_opened", &[("item", game.item_name(v))]));
                 // the item rises above the chest
                 if let Some(pic) = entity_picture(0xC0 + v, 0, None, &sprites.entities, "", None, None) {
                     if let (Some(img), Ok(root)) = (files.image(&pic.path), roots.single()) {
@@ -1447,9 +1597,10 @@ fn update_carry(time: Res<Time>, script: NonSend<Scripting>, tuning: Res<TuningR
         match p.lift_phase {
             1 => {
                 p.lift_t += dt;
-                script.set_f(i, "x", p.x);
-                script.set_f(i, "y", p.y);
-                script.set_f(i, "z", p.z + 0.3 + (CARRY_HEIGHT - 0.3) * (p.lift_t / (LIFT_TIME * 0.7)).min(1.0));
+                let k = (p.lift_t / (LIFT_TIME * 0.7)).min(1.0);
+                script.set_f(i, "x", p.drop.x + (p.x - p.drop.x) * k);
+                script.set_f(i, "y", p.drop.y + (p.y - p.drop.y) * k);
+                script.set_f(i, "z", p.drop.z + (p.z + CARRY_HEIGHT - p.drop.z) * k);
                 if p.lift_t >= LIFT_TIME {
                     p.lift_phase = 0;
                     p.lift_t = 0.0;
@@ -1611,6 +1762,7 @@ fn set_room_song(room: &Room, sound: &mut Sound) {
 fn script_tick(
     time: Res<Time>,
     mut acc: Local<f32>,
+    mut stuck: Local<i32>,
     script: NonSend<Scripting>,
     room: Res<RoomRes>,
     solids: Res<Solids>,
@@ -1630,6 +1782,16 @@ fn script_tick(
         *acc -= TICK;
         let world = World { terrain: &room.room, solids: &solids.0, tuning: tuning.0 };
         let mut support = if p.grounded { world.support_of(p.x, p.y, p.z).map_or(-1, |i| i as i32) } else { -1 };
+        // a platform that moves several times a frame (the raft): the solids are those of the start of the frame, so he is kept on the one he stood on while his feet
+        // are still over its top at its place now
+        if support < 0 && p.grounded && *stuck > 0 {
+            if let Some(e) = script.entities().into_iter().find(|e| e.index as i32 + 1 == *stuck) {
+                if (p.x - e.x).abs() <= e.hbase + 0.3 && (p.y - e.y).abs() <= e.hbase + 0.3 && (p.z - (e.z + e.hheight)).abs() < 0.2 {
+                    support = *stuck - 1;
+                }
+            }
+        }
+        *stuck = support + 1;
         if let Some(i) = std::env::var("LS_ON").ok().and_then(|v| v.parse().ok()) {
             support = i; // test aid: pretend the player stands on this entity
         }
@@ -1652,6 +1814,7 @@ fn script_tick(
 /// Puts the sprites and the solids of the room's entities where the scripts have them. A sprite hidden by the priority tiles
 /// (see `low_priority`) has its picture cut at their pixels, like Nigel.
 fn sync_entities(
+    players: Query<&Player>,
     script: NonSend<Scripting>,
     room: Res<RoomRes>,
     data: Res<RoomEnts>,
@@ -1669,7 +1832,8 @@ fn sync_entities(
     let snaps = script.entities();
     solids.0 = snaps
         .iter()
-        .filter(|e| e.solid && e.visible && e.kind < 0xC0 && e.hbase > 0.0)
+        // (the items lying about are not solid, the books of the churches are: Nigel does not walk through them)
+        .filter(|e| e.solid && e.visible && (e.kind < 0xC0 || shops::CHURCH_BOOKS.contains(&e.kind)) && e.hbase > 0.0)
         .map(|e| Solid { x: e.x, y: e.y, z: e.z, half: e.hbase, height: e.hheight, entity: e.index })
         .collect();
     let dir = format!("rooms/room_{:03}", room.room.file.id);
@@ -1717,7 +1881,7 @@ fn sync_entities(
         let p = snap(room.to_screen(s.x, s.y, s.z));
         let ax = if flip { pic.w - pic.ax } else { pic.ax } as f32;
         let (left, top) = (p.x - ax, p.y - pic.ay as f32);
-        tf.translation = Vec3::new(left + pic.w as f32 / 2.0, -(top + pic.h as f32 / 2.0), entity_depth(s, &snaps));
+        tf.translation = Vec3::new(left + pic.w as f32 / 2.0, -(top + pic.h as f32 / 2.0), entity_depth(s, &snaps, players.single().is_ok_and(|p| p.carrying == Some(s.index) && p.lift_phase == 1)));
         if std::env::var("LS_DBG_DEPTH").is_ok() && (s.index == 0 || s.index == 2) {
             println!("ent {} kind {} pos {:.3} {:.3} {:.3} h {:.2} base {:.2} depth {:.4}", s.index, s.kind, s.x, s.y, s.z, s.hheight, s.hbase, tf.translation.z);
         } // what Nigel holds is over his head, whatever the order of the frame
@@ -1749,9 +1913,10 @@ fn sync_entities(
 
 /// Draw order of a room entity: by its place, but in front of whatever it stands on (a crate on a switch), and a held object
 /// over Nigel's head.
-fn entity_depth(e: &scripting::EntSnapshot, all: &[scripting::EntSnapshot]) -> f32 {
+fn entity_depth(e: &scripting::EntSnapshot, all: &[scripting::EntSnapshot], lifting: bool) -> f32 {
     let mut d = depth(e.x, e.y, e.z);
-    if e.carried {
+    // being lifted it is still where it was on its way up: in front of Nigel or behind him, like the cell it comes from
+    if e.carried && !lifting {
         return d + 0.03;
     }
     for o in all {
@@ -1815,12 +1980,20 @@ fn entity_picture(kind: i32, orientation: i32, room_poses: Option<&Poses>, defs:
             return Some(picture_of(&base, &list[k], mirror));
         }
     }
+    // walking: the pictures of the walk, one every ENEMY_WALK_FRAME_TIME (0.18 s), when the entity has some for this side (a room that only
+    // gives a still picture of a character does not stop it from walking when it moves: the old man of the intro)
+    if let (Some(t), Some(d)) = (walk_time, def) {
+        if room_poses.map_or(true, |p| p.get("walk").is_none()) {
+            if let Some((list, mirror)) = d.poses.get("walk").and_then(|v| v.pick(dir, dirs)) {
+                return Some(picture_of(&base, &list[(t / 0.18) as usize % list.len()], mirror));
+            }
+        }
+    }
     if let Some((list, mirror)) = room_poses.and_then(|p| p.get("idle")).and_then(|v| v.pick(dir, dirs)) {
         return Some(picture_of(room_dir, &list[0], mirror));
     }
     let d = def?;
-    // walking: the pictures of the walk, one every ENEMY_WALK_FRAME_TIME (0.18 s), when the entity has some for this side
-    if let (Some(t), true) = (walk_time, room_poses.is_none()) {
+    if let (Some(t), true) = (walk_time, false) {
         if let Some((list, mirror)) = d.poses.get("walk").and_then(|v| v.pick(dir, dirs)) {
             return Some(picture_of(&base, &list[(t / 0.18) as usize % list.len()], mirror));
         }
@@ -1833,7 +2006,7 @@ fn entity_picture(kind: i32, orientation: i32, room_poses: Option<&Poses>, defs:
 // the player
 // ---------------------------------------------------------------------------------------------------------------
 
-fn walk(time: Res<Time>, cut: Res<cutscene::Cutscene>, combat: Res<Combat>, game: Res<GameState>, chest: Res<ChestOpen>, ctl: Res<Controls>, mut sfx: ResMut<SfxQueue>, room: Res<RoomRes>, solids: Res<Solids>, mut tuning: ResMut<TuningRes>, frozen: Res<GameFrozen>, mut q: Query<&mut Player>) {
+fn walk(mut ladder_t: Local<f32>, config: Res<config::Config>, time: Res<Time>, cut: Res<cutscene::Cutscene>, combat: Res<Combat>, game: Res<GameState>, chest: Res<ChestOpen>, ctl: Res<Controls>, mut sfx: ResMut<SfxQueue>, room: Res<RoomRes>, solids: Res<Solids>, mut tuning: ResMut<TuningRes>, frozen: Res<GameFrozen>, mut q: Query<&mut Player>) {
     if frozen.0 || cut.tracking() {
         return;
     }
@@ -1843,28 +2016,36 @@ fn walk(time: Res<Time>, cut: Res<cutscene::Cutscene>, combat: Res<Combat>, game
     }
     let Ok(mut p) = q.single_mut() else { return };
     let dt = time.delta_secs().min(0.05);
-    // No diagonals: one direction at a time, the most recently pressed key wins (like the original).
-    const DIRS: [(f32, f32); 4] = [(-1.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.0, -1.0)];
-    for i in 0..4 {
-        if ctl.dir[i].just {
-            p.last_key = Some(i);
+    let confused = game.has_status(game::STATUS_CONFUSION);
+    let (mut dx, mut dy);
+    if config.original_directions {
+        // the keys as the original reads them: two together are a diagonal of the screen, one alone goes along the axis he faces (see `physics::input_direction`)
+        (dx, dy) = physics::input_direction([ctl.dir[0].pressed, ctl.dir[1].pressed, ctl.dir[2].pressed, ctl.dir[3].pressed], p.facing, confused);
+    } else {
+        // one direction at a time, the most recently pressed key wins: up north-west, right north-east, down south-east, left south-west
+        const DIRS: [(f32, f32); 4] = [(-1.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.0, -1.0)];
+        for i in 0..4 {
+            if ctl.dir[i].just {
+                p.last_key = Some(i);
+            }
+        }
+        if let Some(i) = p.last_key {
+            if !ctl.dir[i].pressed {
+                p.last_key = None;
+            }
+        }
+        if p.last_key.is_none() {
+            p.last_key = (0..4).find(|&i| ctl.dir[i].pressed);
+        }
+        (dx, dy) = (0.0, 0.0);
+        if let Some(i) = p.last_key {
+            // confused: the controls are reversed
+            let sign = if confused { -1.0 } else { 1.0 };
+            dx = DIRS[i].0 * sign;
+            dy = DIRS[i].1 * sign;
         }
     }
-    if let Some(i) = p.last_key {
-        if !ctl.dir[i].pressed {
-            p.last_key = None;
-        }
-    }
-    if p.last_key.is_none() {
-        p.last_key = (0..4).find(|&i| ctl.dir[i].pressed);
-    }
-    let (mut dx, mut dy) = (0.0f32, 0.0f32);
-    if let Some(i) = p.last_key {
-        // confused: the controls are reversed
-        let sign = if game.has_status(game::STATUS_CONFUSION) { -1.0 } else { 1.0 };
-        dx = DIRS[i].0 * sign;
-        dy = DIRS[i].1 * sign;
-    }
+    let keyed = dx != 0.0 || dy != 0.0;
     // ice (floor 0x2A NE, 0x2B SE, 0x2C SW, 0x2D NW) pushes Nigel along unless he wears the Snow Spikes
     let locked = combat.locked();
     if !locked && p.grounded && game.boots != game::BOOTS_SNOW {
@@ -1945,6 +2126,48 @@ fn walk(time: Res<Time>, cut: Res<cutscene::Cutscene>, combat: Res<Combat>, game
         sfx.play(0x5D);
     }
     p.moving = (dx != 0.0 || dy != 0.0) && ((b.x - before.0).abs() > 1e-5 || (b.y - before.1).abs() > 1e-5);
+    // climbing a ladder or a rope: a sound at each rung (SND_LadderClimb)
+    *ladder_t = if p.climbing && p.moving { *ladder_t - dt } else { 0.0 };
+    if p.climbing && p.moving && *ladder_t <= 0.0 {
+        sfx.play(0x5E);
+        *ladder_t = 0.28;
+    }
+    // a wall in the way at one corner of the box only: the original pushes him towards the free corner and turns him that way
+    if keyed && !p.moving && b.grounded && b.vz <= 0.0 && combat.knock.2 <= 0.0 && !locked && !cut.input_locked && (dx != 0.0) != (dy != 0.0) {
+        if std::env::var("LS_LOG_NUDGE").is_ok() {
+            println!("[nudge] blocked at ({:.2},{:.2}) z {:.2} going ({},{}): {:?}", b.x, b.y, b.z, dx, dy, physics::nudge_direction(&room.room, &tuning.0, b.x, b.y, b.z, dx, dy));
+        }
+        // blocked at both corners (the original does nothing): the help for an exit, which goes further than the original's: a door within two cells to the side
+        // of what he walks into draws him along the wall to it (landstalker.ini, [game] assist_exits)
+        let towards_exit = || -> Option<(f32, f32)> {
+            if !config.assist_exits {
+                return None;
+            }
+            let mut best: Option<(f32, (f32, f32))> = None;
+            for w in &room.room.file.warps {
+                let [wx, wy, ww, wh] = w.area;
+                let (cx, cy) = (wx as f32 + ww as f32 / 2.0, wy as f32 + wh as f32 / 2.0);
+                // on the side he is heading to, within 5 cells, and to one side of him by at most two cells (more is another way)
+                let (along, side) = if dx != 0.0 { ((cx - b.x) * dx.signum(), cy - b.y) } else { ((cy - b.y) * dy.signum(), cx - b.x) };
+                if !(0.0..=5.0).contains(&along) || side.abs() > 2.0 || side.abs() < 0.08 {
+                    continue;
+                }
+                if best.map_or(true, |(d, _)| side.abs() < d) {
+                    best = Some((side.abs(), if dx != 0.0 { (0.0, side.signum()) } else { (side.signum(), 0.0) }));
+                }
+            }
+            best.map(|(_, d)| d)
+        };
+        if let Some((nx, ny)) = physics::nudge_direction(&room.room, &tuning.0, b.x, b.y, b.z, dx, dy).or_else(towards_exit) {
+            let step = 60.0 / 16.0 * dt; // 1/16 of a cell per frame of the original
+            if world.can_stand(b.x + nx * step, b.y + ny * step, b.z) {
+                b.x += nx * step;
+                b.y += ny * step;
+                p.facing = if nx < 0.0 { 0 } else if ny < 0.0 { 1 } else if nx > 0.0 { 2 } else { 3 };
+                p.moving = true;
+            }
+        }
+    }
     p.x = b.x;
     p.y = b.y;
     p.z = b.z;
@@ -1965,7 +2188,7 @@ fn animate_player(
     room: Res<RoomRes>,
     sprites: Res<Sprites>,
     solids: Res<Solids>,
-    chest: Res<ChestOpen>,
+    _chest: Res<ChestOpen>,
     combat: Res<Combat>,
     cut: Res<cutscene::Cutscene>,
     game: Res<GameState>,
@@ -1995,10 +2218,15 @@ fn animate_player(
         Color::WHITE
     };
     let carrying = p.carrying.is_some();
-    let pose = if combat.dead || cut.faint.is_some() { "death" } else if p.lift_phase != 0 { "lift" } else if carrying && !p.grounded { "carry_jump" } else if carrying { "carry_walk" } else if combat.swing.is_some() { "sword" } else if combat.hurt > 0.0 { "hurt" } else if !p.grounded { "jump" } else if p.moving { "walk" } else { "idle" };
+    // on a ladder or a rope: the pictures of the climb (a cycle over the height he gains)
+    let climbing_now = p.climbing || (cut.tracking() && cut.track_action & 0x1000 != 0);
+    let tracked_swing = cut.tracking() && cut.track_action & 0x0F00 != 0;
+    let tracked_hurt = cut.tracking() && cut.track_action & 0x2000 != 0;
+    let pose = if combat.dead || cut.faint.is_some() { "death" } else if tracked_swing { "sword" } else if tracked_hurt { "hurt" } else if climbing_now { "climb" } else if p.lift_phase != 0 { "lift" } else if carrying && !p.grounded { "carry_jump" } else if carrying { "carry_walk" } else if combat.swing.is_some() { "sword" } else if combat.hurt > 0.0 { "hurt" } else if !p.grounded { "jump" } else if p.moving { "walk" } else { "idle" };
     // holding up what the chest held (the same picture whatever the direction)
-    let holding = chest.0.as_ref().filter(|c| c.t >= CHEST_OPEN_TIME);
-    let pose = if holding.is_some() { "hold_item" } else { pose };
+    // (while a chest opens Nigel stays as he is, facing it: the pictures of the "hold_item" pose are sword pictures, which must not show)
+    let holding: Option<&ChestSeq> = None;
+    let pose = pose;
     let Some((frames, flip)) = sprites.player.poses.get(pose).and_then(|v| v.pick(Dir::from_facing(p.facing), &sprites.player.directions)) else { return };
     let frame = Some(frames).and_then(|f| {
         if f.is_empty() {
@@ -2011,7 +2239,11 @@ fn animate_player(
             Some(&f[((t / (combat::DEATH_ANIM_TIME / f.len() as f32)) as usize).min(f.len() - 1)])
         } else if pose == "sword" {
             // the sword: four pictures over the swing
-            Some(&f[((combat.swing.unwrap_or(0.0) / (combat::SWING_DURATION / f.len() as f32)) as usize).min(f.len() - 1)])
+            let swing_t = if tracked_swing { cut.track_action_t } else { combat.swing.unwrap_or(0.0) };
+            Some(&f[((swing_t / (combat::SWING_DURATION / f.len() as f32)) as usize).min(f.len() - 1)])
+        } else if climbing_now {
+            // up a ladder or a rope: the three pictures of the climb, one per quarter unit gained
+            Some(&f[((p.z * 4.0).max(0.0) as usize) % f.len()])
         } else if pose == "hurt" {
             Some(&f[if combat.hurt > combat::HURT_POSE_TIME / 2.0 { 0 } else { 1.min(f.len() - 1) }])
         } else if p.lift_phase != 0 {
@@ -2037,7 +2269,13 @@ fn animate_player(
 
     let cell_depth = p.x.floor() + p.y.floor();
     let low = rule() == Rule::Original && low_priority(&room, p.x, p.y, p.z);
-    let key = (frame.file.clone(), flip, (left * 3.0).round() as i32, (top * 3.0).round() as i32, (p.z * 1000.0).round() as i32, cell_depth as i32 * 2 + low as i32, room.room.file.id);
+    // the swoosh of the sword does not go through rock: when what lies in front of him rises above the sword, only the body is drawn
+    let in_rock = pose == "sword" && {
+        const AHEAD: [(f32, f32); 4] = [(-1.0, 0.0), (0.0, -1.0), (1.0, 0.0), (0.0, 1.0)]; // facing: NW NE SE SW
+        let (dx, dy) = AHEAD[(p.facing & 3) as usize];
+        [1.0f32, 1.6].iter().any(|d| room.room.cell_at_world((p.x + dx * d).floor() as i32, (p.y + dy * d).floor() as i32).is_some_and(|c| c.blocked() || c.height as f32 > p.z + 1.0))
+    };
+    let key = (frame.file.clone(), flip, (left * 3.0).round() as i32, (top * 3.0).round() as i32, (p.z * 1000.0).round() as i32, cell_depth as i32 * 4 + low as i32 + in_rock as i32 * 2, room.room.file.id);
     if cache.as_ref() == Some(&key) {
         return;
     }
@@ -2049,6 +2287,10 @@ fn animate_player(
         for i in 0..w {
             let sx = if flip { w - 1 - i } else { i };
             let mut px = src.get_pixel(sx, j).0;
+            // (his body: 14 pixels each side of his feet, 46 up; what is outside is the swoosh)
+            if in_rock && !((i as f32 - ax).abs() <= 14.0 && (j as f32) >= frame.ay as f32 - 46.0 && (j as f32) <= frame.ay as f32 + 3.0) {
+                px[3] = 0;
+            }
             if px[3] != 0 && !no_cover {
                 let (rx, ry) = ((left + i as f32 + 0.5).floor() as i32, (top + j as f32 + 0.5).floor() as i32);
                 let hidden = match rule() {
@@ -2078,6 +2320,17 @@ struct CameraState {
 /// C toggles between a camera centred on Nigel and a camera that stays where it is (to see what moves).
 #[derive(Resource)]
 struct CameraFollow(bool);
+
+/// F10 freezes the whole game (the clock stops: nothing moves, nothing animates) and F10 again goes on: to take a picture of a moment.
+fn pause_key(keys: Res<ButtonInput<KeyCode>>, mut clock: ResMut<Time<Virtual>>) {
+    if keys.just_pressed(KeyCode::F10) {
+        if clock.is_paused() {
+            clock.unpause();
+        } else {
+            clock.pause();
+        }
+    }
+}
 
 fn toggle_camera(ctl: Res<Controls>, mut follow: ResMut<CameraFollow>, mut windows: Query<&mut Window>) {
     if ctl.camera.just {

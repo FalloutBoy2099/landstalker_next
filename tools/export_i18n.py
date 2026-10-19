@@ -6,7 +6,6 @@
 * cutscenes.json  the "texts" (id -> pages) become `cutscenes.t<id>` (the JSON keeps the actions)
 * shops.json      the name of a room becomes `shops.<slug>`
 * items.txt       one key per line (`items.<slug>`), the names go to items.yaml
-* credits.txt     the text of every line becomes `credits.l<line>`
 The script can be run again: what is a key already is left alone. The captions of the intro (intro_strings.json) are pictures of the original's font
 (tiles), not text: they are not in the dictionaries.
 """
@@ -129,21 +128,3 @@ for line in path.read_text(encoding='utf8').splitlines():
 path.write_text('\n'.join(keys) + '\n', encoding='utf8')
 write_yaml('items', items, 'names of the items (data/text/items.txt lists the keys, one per item number)')
 
-# ---- credits.txt
-credits = load_existing('credits')
-path = text_dir / 'credits.txt'
-lines = []
-for i, line in enumerate(path.read_text(encoding='utf8').splitlines()):
-    if line.startswith('#') or not line.strip():
-        lines.append(line)
-        continue
-    parts = line.split(' ', 2)
-    if len(parts) == 3 and not is_key(parts[2], 'credits'):
-        key = 'l%d' % i
-        credits[key] = parts[2]
-        parts[2] = 'credits.' + key
-    elif len(parts) == 2:
-        parts.append('')
-    lines.append(' '.join(parts))
-path.write_text('\n'.join(lines) + '\n', encoding='utf8')
-write_yaml('credits', credits, 'the credits of the ending (data/text/credits.txt holds the keys)')

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Renders the sounds of the game to audio files (data/audio), once, with the C++ engine's Z80 + YM2612 emulation
-(LS_SOUND_DUMP): sound effects -> sfx_XX.flac, music -> music_XX.ogg + music_XX.json.
+(LS_SOUND_DUMP): sound effects -> sfx_XX.flac, music -> music_XX.ogg + music_XX.yaml.
 
-A song loops in the game: the file holds the intro and one loop, music_XX.json gives {"sample_rate", "loop_start",
+A song loops in the game: the file holds the intro and one loop, music_XX.yaml gives {"sample_rate", "loop_start",
 "loop_end"} in samples (loop_end = end of the file) or {"loop": false} for a jingle that plays once.
 
 Usage: render_sounds.py [--engine path/to/dds520.exe] [ids...]     (ids in hex, default: all)
 Needs numpy, scipy and ffmpeg (libvorbis).
 """
 import argparse
-import json
+import yaml
 import subprocess
 import sys
 import tempfile
@@ -21,6 +21,7 @@ from scipy.signal import fftconvolve
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / 'data' / 'audio'
+FLAC, OGG = OUT / 'flac', OUT / 'ogg'   # data/audio/flac (sound effects), data/audio/ogg (songs + their loop points), data/audio/vgz (render_vgm.py)
 ENGINE = ROOT.parent / 'landstalker_engine' / 'build' / 'RelWithDebInfo' / 'dds520.exe'
 
 MUSIC = list(range(0x01, 0x17)) + [0x1B, 0x1D, 0x1F] + list(range(0x21, 0x30))
@@ -144,7 +145,7 @@ def render_sfx(engine, sid, tmp):
         return False
     sr, st = read_wav(wav)
     st = trim_end(st, sr)
-    write_flac(st, sr, OUT / ('sfx_%02X.flac' % sid))
+    write_flac(st, sr, FLAC / ('sfx_%02X.flac' % sid))
     return True
 
 
@@ -157,8 +158,8 @@ def render_music(engine, sid, tmp):
     mono_tail = st[-int(5 * sr):]
     if rms(mono_tail) < 20.0:                  # a jingle: it ended
         st = trim_end(st, sr)
-        write_ogg(st, sr, OUT / ('music_%02X.ogg' % sid))
-        (OUT / ('music_%02X.json' % sid)).write_text(json.dumps({'sample_rate': sr, 'loop': False}))
+        write_ogg(st, sr, OGG / ('music_%02X.ogg' % sid))
+        (OGG / ('music_%02X.yaml' % sid)).write_text(yaml.safe_dump({'sample_rate': sr, 'loop': False}, default_flow_style=True))
         return True
     dump(engine, sid, 240, wav)
     sr, st = read_wav(wav)
@@ -169,8 +170,8 @@ def render_music(engine, sid, tmp):
         lp = (int(60 * sr), len(st))
     s, e = lp
     st = st[:e]
-    write_ogg(st, sr, OUT / ('music_%02X.ogg' % sid), quality=3)
-    (OUT / ('music_%02X.json' % sid)).write_text(json.dumps({'sample_rate': sr, 'loop': True, 'loop_start': int(s), 'loop_end': int(e)}))
+    write_ogg(st, sr, OGG / ('music_%02X.ogg' % sid), quality=3)
+    (OGG / ('music_%02X.yaml' % sid)).write_text(yaml.safe_dump({'sample_rate': sr, 'loop': True, 'loop_start': int(s), 'loop_end': int(e)}, default_flow_style=True))
     print('  loop %.2f s -> %.2f s' % (s / sr, e / sr))
     return True
 
@@ -180,7 +181,8 @@ def main():
     ap.add_argument('--engine', default=str(ENGINE))
     ap.add_argument('ids', nargs='*')
     a = ap.parse_args()
-    OUT.mkdir(parents=True, exist_ok=True)
+    FLAC.mkdir(parents=True, exist_ok=True)
+    OGG.mkdir(parents=True, exist_ok=True)
     ids = [int(i, 16) for i in a.ids] if a.ids else MUSIC + SFX
     with tempfile.TemporaryDirectory() as tmp:
         for sid in ids:

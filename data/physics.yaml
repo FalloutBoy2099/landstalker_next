@@ -3,4 +3,4 @@ gravity: 87.5       # unités de hauteur / s² (mesuré sur la ROM : le saut dur
 jump_height: 1.75   # hauteur du sommet du saut, en unités (mesuré sur la ROM : 28/16) ; la vitesse de départ en découle
 max_fall_speed: 30.0
 walk_speed: 7.5     # cellules / s (mesuré sur la ROM : 2/16 de cellule par image à 60 Hz)
-step_up: 0.5      # hauteur max d'une marche franchie sans sauter (les marches d'un escalier demandent un saut)
+step_up: 0.15     # tolérance de marche (en unités) : une case plus haute que les pieds arrête (règle de l'original), 0,15 absorbe les petits décalages du saut sans permettre de monter deux niveaux (1,75 + 0,15 < 2)

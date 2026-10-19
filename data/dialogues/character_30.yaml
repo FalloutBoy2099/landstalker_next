@@ -1,0 +1,66 @@
+# what character 30 says, by story progress
+progress:
+- index: 0
+  min: 17
+  node:
+    set_flag_on_talk: 206
+    clear:
+      messages:
+      - {action: 81}
+    set:
+      check_flag: 219
+      set:
+        messages:
+        - {set_flag: 147}
+        - dialogs.c30_progress_0_node_set_set_m1
+        - dialogs.c30_progress_0_node_set_set_m2
+      clear:
+        messages: [dialogs.c30_progress_0_node_set_clear_m0]
+- index: 0
+  min: 18
+  node:
+    messages: [dialogs.c30_progress_1_node_m0, dialogs.c30_progress_1_node_m1]
+- index: 0
+  min: 19
+  node:
+    set_flag_on_talk: 207
+    clear:
+      messages: [dialogs.c30_progress_2_node_clear_m0, dialogs.c30_progress_2_node_clear_m1, dialogs.c30_progress_2_node_clear_m2, dialogs.c30_progress_2_node_clear_m3,
+        dialogs.c30_progress_2_node_clear_m4, dialogs.c30_progress_2_node_clear_m5]
+    set:
+      messages: [dialogs.c30_progress_2_node_set_m0]
+- index: 0
+  min: 20
+  node:
+    set_flag_on_talk: 209
+    clear:
+      messages: [dialogs.c30_progress_3_node_clear_m0, dialogs.c30_progress_3_node_clear_m1, dialogs.c30_progress_3_node_clear_m2, dialogs.c30_progress_3_node_clear_m3,
+        dialogs.c30_progress_3_node_clear_m4]
+    set:
+      messages: [dialogs.c30_progress_3_node_set_m0]
+- index: 0
+  min: 24
+  node:
+    set_flag_on_talk: 213
+    clear:
+      messages:
+      - {action: 181}
+    set:
+      messages: [dialogs.c30_progress_4_node_set_m0]
+- index: 0
+  min: 29
+  node:
+    set_flag_on_talk: 222
+    clear:
+      messages:
+      - dialogs.c30_progress_5_node_clear_m0
+      - dialogs.c30_progress_5_node_clear_m1
+      - dialogs.c30_progress_5_node_clear_m2
+      - dialogs.c30_progress_5_node_clear_m3
+      - dialogs.c30_progress_5_node_clear_m4
+      - dialogs.c30_progress_5_node_clear_m5
+      - dialogs.c30_progress_5_node_clear_m6
+      - {give_item: 22}
+      - dialogs.c30_progress_5_node_clear_m8
+    set:
+      messages: [dialogs.c30_progress_5_node_set_m0]

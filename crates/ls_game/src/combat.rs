@@ -107,7 +107,7 @@ impl Combat {
 
     /// An ailment strikes (nothing happens if he has it already).
     pub fn inflict(&mut self, game: &mut GameState, sfx: &mut SfxQueue, msg: &mut Message, status: u8) {
-        if game.has_status(status) || self.dead {
+        if game.has_status(status) || self.dead || game.ring_protects(status) {
             return;
         }
         game.add_status(status);
@@ -116,15 +116,15 @@ impl Combat {
             STATUS_POISON => {
                 self.poison_walk = 0.0;
                 self.poison_ticks = 8;
-                msg.show("You are poisoned!");
+                msg.show(crate::i18n::t("messages.status.poisoned"));
             }
-            STATUS_CONFUSION => msg.show("You are confused! The controls are reversed."),
+            STATUS_CONFUSION => msg.show(crate::i18n::t("messages.status.confused")),
             STATUS_PARALYSIS => {
                 self.paralysis = 20.0;
                 self.paralysis_presses = 0;
-                msg.show("You are paralysed! Press the sword button to struggle.");
+                msg.show(crate::i18n::t("messages.status.paralysed"));
             }
-            _ => msg.show("You are cursed! You cannot use your sword."),
+            _ => msg.show(crate::i18n::t("messages.status.cursed")),
         }
     }
 
@@ -235,7 +235,8 @@ pub fn attack_input(ctl: Res<Controls>, frozen: Res<GameFrozen>, chest: Res<Ches
     if cut.active() {
         return;
     }
-    if !ctl.attack.just || chest.0.is_some() || combat.cooldown > 0.0 || combat.swing.is_some() || combat.knock.2 > 0.0 || p.carrying.is_some() || p.lift_phase != 0 || p.climbing {
+    // the button that opens a chest (or lifts, talks) must not swing the sword as well, even when both are on the same key
+    if !ctl.attack.just || ctl.action.just || chest.0.is_some() || combat.cooldown > 0.0 || combat.swing.is_some() || combat.knock.2 > 0.0 || p.carrying.is_some() || p.lift_phase != 0 || p.climbing {
         return;
     }
     if game.has_status(STATUS_PARALYSIS) {
@@ -245,7 +246,7 @@ pub fn attack_input(ctl: Res<Controls>, frozen: Res<GameFrozen>, chest: Res<Ches
         combat.paralysis_presses += 1;
         if game.rand(ODDS[n]) == 0 {
             combat.cure(&mut game, STATUS_PARALYSIS);
-            msg.show("You break free!");
+            msg.show(crate::i18n::t("messages.status.break_free"));
         } else {
             sfx.play(0x44);
         }
@@ -254,7 +255,7 @@ pub fn attack_input(ctl: Res<Controls>, frozen: Res<GameFrozen>, chest: Res<Ches
     }
     if game.has_status(STATUS_CURSE) {
         sfx.play(0x44);
-        msg.show("You are cursed! You cannot use your sword.");
+        msg.show(crate::i18n::t("messages.status.cursed"));
         combat.cooldown = 0.5;
         return;
     }
@@ -270,6 +271,9 @@ pub fn attack_input(ctl: Res<Controls>, frozen: Res<GameFrozen>, chest: Res<Ches
     combat.hit_pending = true;
     sfx.play(0x51);
 }
+
+/// Debug (landstalker.ini [debug] `one_hit_kill`, and the debug panel): every blow of the sword kills what it hits (except what is indestructible).
+pub static ONE_HIT_KILL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The sword (or its magic) hits an enemy: the damage, the death, the push back (`push`: the direction of the blow).
 #[allow(clippy::too_many_arguments)]
@@ -290,6 +294,9 @@ fn strike(combat: &mut Combat, game: &mut GameState, script: &Scripting, sfx: &m
     let dmg = game.roll_player_damage(stats.defence, magic);
     let hp = game.enemy_hp(room_id, s.index, stats.health);
     *hp -= (dmg * 256.0) as i32;
+    if ONE_HIT_KILL.load(std::sync::atomic::Ordering::Relaxed) {
+        *hp = 0;
+    }
     if std::env::var("LS_LOG_COMBAT").is_ok() {
         println!("[combat] sword hits entity {} (kind {}) for {:.2}: {:.2} left{}", s.index, s.kind, dmg, *hp as f32 / 256.0, if magic > 0 { format!(" (magic {})", magic) } else { String::new() });
     }
@@ -406,7 +413,7 @@ pub fn combat_update(
             combat.poison_ticks -= 1;
             if combat.poison_ticks <= 0 {
                 combat.cure(&mut game, STATUS_POISON);
-                msg.show("The poison has worn off.");
+                msg.show(crate::i18n::t("messages.status.poison_gone"));
             }
         }
     }
@@ -414,7 +421,7 @@ pub fn combat_update(
         combat.paralysis -= dt;
         if combat.paralysis <= 0.0 {
             combat.cure(&mut game, STATUS_PARALYSIS);
-            msg.show("You can move again.");
+            msg.show(crate::i18n::t("messages.status.can_move"));
         }
     }
     // the Healing Boots mend a little while walking
@@ -426,9 +433,9 @@ pub fn combat_update(
         }
     }
 
-    // the charge of the sword rises (32 a frame at 60 Hz) while a sword is worn
+    // the charge of the sword rises (32 a frame at 60 Hz, more with the Saturn or the Venus Stone) while a sword is worn
     if game.sword > 0 {
-        combat.charge = (combat.charge + dt * 60.0 * 32.0).min(CHARGE_FULL);
+        combat.charge = (combat.charge + dt * 60.0 * game.charge_rate()).min(CHARGE_FULL);
     }
 
     // the sword
@@ -556,8 +563,11 @@ pub fn pickups(frozen: Res<GameFrozen>, shops: Res<crate::shops::Shops>, script:
     let room_id = room.room.file.id;
     // the goods of a shop are bought, not picked up
     let shop_room = shops.is_shop(room_id);
+    let church_room = shops.for_room(room_id).map_or(false, |i| i.kind == "church");
     for s in script.entities() {
-        if !s.visible || (shop_room && s.kind >= 0xC0) {
+        // (the books of a church are carried to the lectern, not picked up)
+        let church_book = !(s.pickup_gold > 0 || s.pickup_item >= 0) && church_room && [227, 225, 226, 209, 228, 238].contains(&s.kind);
+        if !s.visible || (shop_room && s.kind >= 0xC0) || church_book {
             continue;
         }
         let drop = s.pickup_gold > 0 || s.pickup_item >= 0;
@@ -573,11 +583,11 @@ pub fn pickups(frozen: Res<GameFrozen>, shops: Res<crate::shops::Shops>, script:
             if s.pickup_gold > 0 {
                 game.add_gold(s.pickup_gold);
                 sfx.play(0x6A);
-                msg.show(format!("Got {} gold", s.pickup_gold));
+                msg.show(crate::i18n::tf("messages.pickup.gold", &[("n", s.pickup_gold.to_string())]));
             } else {
                 game.add_item(s.pickup_item);
                 sound.request_jingle(0x05, 2.6);
-                msg.show(format!("Got {}", game.item_name(s.pickup_item)));
+                msg.show(crate::i18n::tf("messages.pickup.item", &[("item", game.item_name(s.pickup_item))]));
             }
         } else if !game.collected.contains(&(room_id, s.index)) {
             // an item on the floor (type - 0xC0 is the item)
@@ -587,13 +597,14 @@ pub fn pickups(frozen: Res<GameFrozen>, shops: Res<crate::shops::Shops>, script:
             game.add_item(item);
             sound.request_jingle(0x05, 2.6);
             let count = game.item_count(item);
-            let mut text = format!("Got {}", game.item_name(item));
-            if count > 1 {
-                text.push_str(&format!(" (x{})", count));
+            let values = [("item", game.item_name(item)), ("count", count.to_string())];
+            msg.show(if count > 1 {
+                crate::i18n::tf("messages.pickup.item_count", &values)
             } else if item == crate::game::ITEM_LIFE_STOCK {
-                text.push_str(": max health up");
-            }
-            msg.show(text);
+                crate::i18n::tf("messages.pickup.max_health_up", &values)
+            } else {
+                crate::i18n::tf("messages.pickup.item", &values)
+            });
         }
     }
 }

@@ -1,4 +1,4 @@
-//! What the characters say (data/text/dialogue.json). Port of Dialogue.h of the C++ engine.
+//! What the characters say (data/dialogues: one YAML file per character). Port of Dialogue.h of the C++ engine.
 //!
 //! A character is a tree of nodes that mirror the helpers of the original scripts:
 //!   messages          boxes to show
@@ -51,15 +51,18 @@ fn int(v: Option<&Value>) -> i32 {
 }
 
 impl Dialogues {
-    pub fn load(path: &Path) -> Dialogues {
-        let Ok(text) = std::fs::read_to_string(path) else { return Dialogues::default() };
-        let root: Value = serde_json::from_str(&text).unwrap_or_default();
-        let progress_table = root.get("progress_flags").and_then(|p| p.as_array()).map(|a| a.iter().filter_map(|p| Some((p.get(0)?.as_i64()? as i32, p.get(1)?.as_i64()? as i32))).collect()).unwrap_or_default();
-        Dialogues { root, progress_table }
+    /// `dir` = data/dialogues: one file per character (character_N.yaml) and progress.yaml.
+    pub fn load(dir: &Path) -> Dialogues {
+        let mut root = serde_json::Map::new();
+        root.insert("characters".into(), Value::Object(crate::yamldata::numbered(dir, "character_")));
+        let progress = crate::yamldata::read(&dir.join("progress.yaml"));
+        let progress_table = progress.as_array().map(|a| a.iter().filter_map(|p| Some((p.get("flag")?.as_i64()? as i32, p.get("progress")?.as_i64()? as i32))).collect()).unwrap_or_default();
+        Dialogues { root: Value::Object(root), progress_table }
     }
 
-    pub fn from_json(text: &str) -> Dialogues {
-        let root: Value = serde_json::from_str(text).unwrap_or_default();
+    /// Dialogues from the text of a YAML tree {characters: {...}, progress_flags: [[flag, progress]]} (the tests).
+    pub fn from_yaml(text: &str) -> Dialogues {
+        let root: Value = serde_yaml::from_str::<serde_yaml::Value>(text).map(crate::yamldata::convert).unwrap_or_default();
         let progress_table = root.get("progress_flags").and_then(|p| p.as_array()).map(|a| a.iter().filter_map(|p| Some((p.get(0)?.as_i64()? as i32, p.get(1)?.as_i64()? as i32))).collect()).unwrap_or_default();
         Dialogues { root, progress_table }
     }
@@ -105,7 +108,10 @@ impl Dialogues {
             for s in messages {
                 if let Some(text) = s.as_str() {
                     // the message is the key of a text of data/i18n (a text that is not a key shows as it is)
-                    c.pages.push(Page { text: format_text(&crate::i18n::t(text)), give_item: -1 });
+                    // (a translation may need several boxes where the original had one: the value is then a list of pages)
+                    for page in crate::i18n::pages(text) {
+                        c.pages.push(Page { text: format_text(&page), give_item: -1 });
+                    }
                 } else if let Some(g) = s.get("give_item") {
                     // received after the box before it; before any box: right away
                     match c.pages.last_mut() {
@@ -212,7 +218,7 @@ mod tests {
         }
     }
 
-    const JSON: &str = r#"{
+    const YAML: &str = r#"{
       "progress_flags": [[20, 3], [16, 1]],
       "characters": {
         "1": {"progress": [
@@ -224,7 +230,7 @@ mod tests {
 
     #[test]
     fn what_a_character_says_follows_the_story() {
-        let d = Dialogues::from_json(JSON);
+        let d = Dialogues::from_yaml(YAML);
         assert!(d.has(1) && !d.has(2));
         let mut s = Fake::default();
         let c = d.begin(1, &mut s);
@@ -247,7 +253,9 @@ mod tests {
 
     #[test]
     fn the_real_dialogues_load() {
-        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/text/dialogue.json");
+        let _lock = crate::i18n::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::i18n::init(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data"), "en");
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/dialogues");
         let d = Dialogues::load(&data);
         assert!(d.has(0));
         let c = d.begin(0, &mut Fake::default());

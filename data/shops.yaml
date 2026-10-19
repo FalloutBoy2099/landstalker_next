@@ -1,0 +1,30 @@
+# shops, inns and churches by room number (markup / 16 of the base price of items.yaml)
+rooms:
+  '596': {name: shops.massan_shop, kind: shop, markup: 16, lifestock_markup: 8}
+  '597': {name: shops.massan_church, kind: church, markup: 16, lifestock_markup: 16}
+  '598': {name: shops.massan_inn, kind: inn, markup: 8, lifestock_markup: 16}
+  '607': {name: shops.gumi_church, kind: church, markup: 16, lifestock_markup: 16}
+  '608': {name: shops.gumi_inn, kind: inn, markup: 16, lifestock_markup: 11}
+  '615': {name: shops.ryuma_shop, kind: shop, markup: 16, lifestock_markup: 16}
+  '613': {name: shops.ryuma_church, kind: church, markup: 16, lifestock_markup: 16}
+  '623': {name: shops.ryuma_inn, kind: inn, markup: 16, lifestock_markup: 16}
+  '678': {name: shops.mercator_shop_1, kind: shop, markup: 24, lifestock_markup: 16}
+  '695': {name: shops.mercator_shop_2, kind: shop, markup: 16, lifestock_markup: 16}
+  '641': {name: shops.mercator_harbour, kind: other, markup: 12, lifestock_markup: 16}
+  '699': {name: shops.mercator_church, kind: church, markup: 16, lifestock_markup: 16}
+  '701': {name: shops.mercator_hotel, kind: inn, markup: 32, lifestock_markup: 16}
+  '719': {name: shops.verla_shop, kind: shop, markup: 16, lifestock_markup: 24}
+  '721': {name: shops.verla_church, kind: church, markup: 16, lifestock_markup: 16}
+  '733': {name: shops.destel_shop, kind: shop, markup: 16, lifestock_markup: 32}
+  '736': {name: shops.destel_church, kind: church, markup: 16, lifestock_markup: 16}
+  '729': {name: shops.destel_inn, kind: inn, markup: 16, lifestock_markup: 16}
+  '747': {name: shops.kazalt_shop, kind: shop, markup: 16, lifestock_markup: 64}
+  '749': {name: shops.kazalt_church, kind: church, markup: 16, lifestock_markup: 16}
+  '745': {name: shops.kazalt_inn, kind: inn, markup: 16, lifestock_markup: 16}
+  '775': {name: shops.mir_s_tower_save_room, kind: other, markup: 16, lifestock_markup: 16}
+  '41': {name: shops.mercator_castle_dungeon_removed_save_room, kind: other, markup: 16, lifestock_markup: 16}
+  '660': {name: shops.mercator_wholesaler, kind: other, markup: 16, lifestock_markup: 16}
+  '517': {name: shops.kelketo_waterfall_shop, kind: shop, markup: 16, lifestock_markup: 16}
+  '526': {name: shops.greedly_s_shop, kind: shop, markup: 19, lifestock_markup: 48}
+  '305': {name: shops.lake_shrine_save_room, kind: other, markup: 16, lifestock_markup: 16}
+  '392': {name: shops.labrynth_save_room, kind: other, markup: 16, lifestock_markup: 16}

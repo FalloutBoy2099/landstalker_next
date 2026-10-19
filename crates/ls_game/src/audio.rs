@@ -1,4 +1,4 @@
-//! Sound: the songs and sound effects of the game. A song is a VGM file (data/audio/music_XX.vgz, tools/render_vgm.py: the
+//! Sound: the songs and sound effects of the game. A song is a VGM file (data/audio/vgz/music_XX.vgz, tools/render_vgm.py: the
 //! writes of the game's own sound driver to the YM2612 and the PSG, played here by the chips emulated in ls_data::vgm), or
 //! an OGG rendered once from the engine (tools/render_sounds.py); the effects are FLAC files. A song is a custom audio source (`Pcm`) that knows where it loops, so the intro plays once and the loop never
 //! has a gap. Volumes come from landstalker.ini ([audio]).
@@ -102,11 +102,35 @@ pub struct AudioSettings {
     pub sfx: f32,
     /// the songs: "vgm" (the chips emulated), "ogg" (rendered once), "auto" (vgm when there is a file)
     pub music_format: String,
+    /// the fanfare of a chest is played over the room's music, which goes on (false: it takes the music's place for a moment, like the original)
+    pub chest_keeps_music: bool,
+    /// the volume of some sound effects, by id (`[sfx]` of landstalker.ini: only the ones that are written; the others are at the normal volume)
+    pub sfx_volumes: HashMap<u8, f32>,
+}
+
+/// The sound effects by name (`SND_SwordHit` is `sword_hit`: the names of landstalker.ini, [sfx], are read without the case, the underscores and the dashes).
+pub const SFX_NAMES: [(u8, &str); 58] = [
+    (0x41, "skeleton_talk"), (0x42, "cursor_move"), (0x43, "cursor_select"), (0x44, "error_buzz"), (0x45, "speaker_pitch_7"), (0x46, "speaker_pitch_6"),
+    (0x47, "speaker_pitch_5"), (0x48, "speaker_pitch_4"), (0x49, "speaker_pitch_3"), (0x4A, "speaker_pitch_2"), (0x4B, "speaker_pitch_1"), (0x4C, "speaker_pitch_0"),
+    (0x4D, "warp_pad"), (0x4E, "drum"), (0x4F, "cymbal"), (0x50, "snare_drum"), (0x51, "sword_swing"), (0x52, "sword_hit"), (0x53, "jump"), (0x54, "fall"),
+    (0x55, "door"), (0x56, "throw"), (0x57, "enemy_noise"), (0x58, "door_lock"), (0x59, "rumble"), (0x5A, "health_recover_2"), (0x5B, "dog_transform"),
+    (0x5C, "ghost_absorb_hp"), (0x5D, "jump_land"), (0x5E, "ladder_climb"), (0x5F, "throw_1"), (0x60, "rebound"), (0x61, "nigel_hit_1"), (0x62, "nigel_drop_obj_2"),
+    (0x63, "nigel_drop_obj_1"), (0x64, "nigel_hit_2"), (0x65, "nigel_die"), (0x66, "enemy_die_1"), (0x67, "enemy_hit_1"), (0x68, "menu_open"),
+    (0x69, "health_recover_1"), (0x6A, "pickup_money"), (0x6B, "kazalt_warp"), (0x6C, "switch"), (0x6D, "explosion"), (0x6E, "thud"), (0x6F, "enemy_die_2"),
+    (0x70, "enemy_hit_2"), (0x71, "fireball_1"), (0x72, "fireball_2"), (0x73, "short_rumble"), (0x74, "permanent_switch"), (0x75, "latch"), (0x76, "friday_magic"),
+    (0x77, "slash_1"), (0x78, "slash_2"), (0x79, "mir_warp"), (0x7A, "poison"),
+];
+
+/// The id of a sound effect from what is written in the ini: its name (`sword_hit`, `SwordHit`...) or its number (`52`, `0x52`).
+pub fn sfx_id(key: &str) -> Option<u8> {
+    let plain = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_lowercase();
+    let k = plain(key);
+    SFX_NAMES.iter().find(|(_, n)| plain(n) == k).map(|(id, _)| *id).or_else(|| u8::from_str_radix(key.trim().trim_start_matches("0x"), 16).ok())
 }
 
 impl Default for AudioSettings {
     fn default() -> Self {
-        AudioSettings { enabled: true, master: 1.0, music: 0.6, sfx: 0.8, music_format: "auto".to_string() }
+        AudioSettings { enabled: true, master: 1.0, music: 0.6, sfx: 0.8, music_format: "auto".to_string(), chest_keeps_music: true, sfx_volumes: HashMap::new() }
     }
 }
 
@@ -134,6 +158,8 @@ pub struct Sound {
     pub jingle: f32,
     /// a jingle to start at the next frame: (song id, seconds)
     pending_jingle: Option<(u8, f32)>,
+    /// a fanfare to play over the music at the next frame
+    pending_overlay: Option<u8>,
     /// songs being decoded in a thread
     pending: HashMap<String, std::sync::Mutex<std::sync::mpsc::Receiver<Option<Decoded>>>>,
 }
@@ -142,6 +168,11 @@ impl Sound {
     /// Plays a short song once over the room's music (fanfare, chest opening...); the room's song starts again after `seconds`.
     pub fn request_jingle(&mut self, id: u8, seconds: f32) {
         self.pending_jingle = Some((id, seconds));
+    }
+
+    /// Plays a short song over the room's music, which is not touched.
+    pub fn request_over(&mut self, id: u8) {
+        self.pending_overlay = Some(id);
     }
 }
 
@@ -172,10 +203,10 @@ fn decode_vgm(path: &std::path::Path) -> Option<Decoded> {
     Some(Decoded { samples: Vec::new(), channels: 2, rate, looping: None, chip: Some(Arc::new(song)) })
 }
 
-/// Reads data/audio/<name>.vgm (songs), .flac or .ogg (and <name>.json for the loop of an ogg). `format`: see AudioSettings.
+/// Reads data/audio/vgz/<name>.vgz (songs), flac/<name>.flac (sound effects) or ogg/<name>.ogg (and ogg/<name>.yaml for the loop of an ogg). `format`: see AudioSettings.
 fn decode_named(dir: &std::path::Path, name: &str, format: &str) -> Option<Decoded> {
     for ext in ["vgz", "vgm"] {
-        let vgm = dir.join(format!("{}.{}", name, ext));
+        let vgm = dir.join("vgz").join(format!("{}.{}", name, ext));
         if format != "ogg" && vgm.exists() {
             if let Some(d) = decode_vgm(&vgm) {
                 return Some(d);
@@ -183,13 +214,13 @@ fn decode_named(dir: &std::path::Path, name: &str, format: &str) -> Option<Decod
         }
     }
     // a sound is a FLAC (sound effects) or an OGG (songs)
-    let flac = dir.join(format!("{}.flac", name));
-    let file = if flac.exists() { flac } else { dir.join(format!("{}.ogg", name)) };
+    let flac = dir.join("flac").join(format!("{}.flac", name));
+    let file = if flac.exists() { flac } else { dir.join("ogg").join(format!("{}.ogg", name)) };
     let decoded = if file.extension().map_or(false, |e| e == "flac") { decode_flac(&file) } else { decode_ogg(&file) };
     let (samples, channels, rate) = decoded?;
-    let looping = std::fs::read_to_string(dir.join(format!("{}.json", name)))
+    let looping = std::fs::read_to_string(dir.join("ogg").join(format!("{}.yaml", name)))
         .ok()
-        .and_then(|t| serde_json::from_str::<MusicInfo>(&t).ok())
+        .and_then(|t| serde_yaml::from_str::<MusicInfo>(&t).ok())
         .filter(|m| m.r#loop)
         .map(|m| (m.loop_start * channels as usize, m.loop_end.min(samples.len() / channels as usize) * channels as usize));
     Some(Decoded { samples, channels, rate, looping, chip: None })
@@ -278,13 +309,20 @@ pub fn play_sfx(mut commands: Commands, mut queue: ResMut<SfxQueue>, mut sound: 
             println!("[audio] sfx {:#04x}", id);
         }
         if let Some(h) = sound.load(&format!("sfx_{:02X}", id), &mut pcms) {
-            commands.spawn((AudioPlayer(h), PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.sfx * settings.master))));
+            commands.spawn((AudioPlayer(h), PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.sfx * settings.master * settings.sfx_volumes.get(&id).copied().unwrap_or(1.0)))));
         }
     }
 }
 
 /// Starts the song the room wants (or a jingle) and stops the previous one.
 pub fn play_music(mut commands: Commands, time: Res<Time>, mut sound: ResMut<Sound>, mut pcms: ResMut<Assets<Pcm>>, settings: Res<AudioSettings>, music: Query<Entity, With<Music>>) {
+    if let Some(id) = sound.pending_overlay.take() {
+        if settings.enabled {
+            if let Some(h) = sound.load_in_background(&format!("music_{:02X}", id), &settings.music_format, &mut pcms) {
+                commands.spawn((AudioPlayer(h), PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.music * settings.master))));
+            }
+        }
+    }
     if let Some((id, seconds)) = sound.pending_jingle.take() {
         jingle(&mut commands, &mut sound, &mut pcms, &settings, &music, id, seconds);
         return;

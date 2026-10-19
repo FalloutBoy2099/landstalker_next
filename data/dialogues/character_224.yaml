@@ -1,0 +1,10 @@
+# what character 224 says, by story progress
+progress:
+- index: 0
+  min: 26
+  node:
+    messages: [dialogs.c224_progress_0_node_m0, dialogs.c224_progress_0_node_m1, dialogs.c224_progress_0_node_m2]
+- index: 0
+  min: 27
+  node:
+    messages: [dialogs.c224_progress_1_node_m0]

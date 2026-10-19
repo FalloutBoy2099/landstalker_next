@@ -1,0 +1,29 @@
+# what character 178 says, by story progress
+progress:
+- index: 0
+  min: 26
+  node:
+    yesno:
+      prompt:
+        messages: [dialogs.c178_progress_0_node_yesno_prompt_m0]
+      'yes':
+        messages: [dialogs.c178_progress_0_node_yesno_yes_m0, dialogs.c178_progress_0_node_yesno_yes_m1]
+      'no':
+        messages: [dialogs.c178_progress_0_node_yesno_no_m0, dialogs.c178_progress_0_node_yesno_no_m1, dialogs.c178_progress_0_node_yesno_no_m2]
+- index: 1
+  min: 1
+  node:
+    messages: [dialogs.c178_progress_1_node_m0]
+- index: 1
+  min: 2
+  node:
+    check_flag: 165
+    set:
+      messages: [dialogs.c178_progress_2_node_set_m0]
+    clear:
+      messages:
+      - {action: 109}
+- index: 1
+  min: 3
+  node:
+    messages: [dialogs.c178_progress_3_node_m0]

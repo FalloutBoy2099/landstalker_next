@@ -1,0 +1,15 @@
+# what character 85 says, by story progress
+progress:
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c85_progress_0_node_m0, dialogs.c85_progress_0_node_m1]
+- index: 0
+  min: 5
+  node:
+    set_flag_on_talk: 195
+    clear:
+      messages:
+      - {action: 13}
+    set:
+      messages: [dialogs.c85_progress_1_node_set_m0]

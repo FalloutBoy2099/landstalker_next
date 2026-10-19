@@ -1,0 +1,17 @@
+# what character 57 says, by story progress
+set_flag_on_talk: 223
+clear:
+  messages:
+  - dialogs.c57_clear_m0
+  - dialogs.c57_clear_m1
+  - dialogs.c57_clear_m2
+  - {give_item: 1}
+  - dialogs.c57_clear_m4
+  - dialogs.c57_clear_m5
+  - dialogs.c57_clear_m6
+set:
+  set_flag_on_talk: 227
+  clear:
+    messages: [dialogs.c57_set_clear_m0, dialogs.c57_set_clear_m1, dialogs.c57_set_clear_m2, dialogs.c57_set_clear_m3]
+  set:
+    messages: [dialogs.c57_set_set_m0]

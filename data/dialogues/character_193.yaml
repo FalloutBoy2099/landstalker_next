@@ -1,0 +1,14 @@
+# what character 193 says, by story progress
+progress:
+- index: 0
+  min: 17
+  node:
+    set_flag_on_talk: 204
+    clear:
+      messages: [dialogs.c193_progress_0_node_clear_m0, dialogs.c193_progress_0_node_clear_m1, dialogs.c193_progress_0_node_clear_m2]
+    set:
+      messages: [dialogs.c193_progress_0_node_set_m0]
+- index: 0
+  min: 18
+  node:
+    messages: [dialogs.c193_progress_1_node_m0, dialogs.c193_progress_1_node_m1]

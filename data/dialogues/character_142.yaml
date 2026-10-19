@@ -1,0 +1,18 @@
+# what character 142 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c142_progress_0_node_m0]
+- index: 0
+  min: 20
+  node:
+    check_flag: 162
+    set:
+      messages: [dialogs.c142_progress_1_node_set_m0]
+    clear:
+      messages: [dialogs.c142_progress_1_node_clear_m0, dialogs.c142_progress_1_node_clear_m1, dialogs.c142_progress_1_node_clear_m2]
+- index: 0
+  min: 21
+  node:
+    messages: [dialogs.c142_progress_2_node_m0]

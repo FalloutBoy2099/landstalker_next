@@ -1,0 +1,6 @@
+# what character 52 says, by story progress
+progress:
+- index: 0
+  min: 22
+  node:
+    messages: [dialogs.c52_progress_0_node_m0]

@@ -1,0 +1,14 @@
+# what character 65 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    messages: [dialogs.c65_progress_0_node_m0, dialogs.c65_progress_0_node_m1, dialogs.c65_progress_0_node_m2]
+- index: 0
+  min: 1
+  node:
+    messages: [dialogs.c65_progress_1_node_m0]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c65_progress_2_node_m0]

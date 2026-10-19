@@ -1,0 +1,43 @@
+# what character 104 says, by story progress
+progress:
+- index: 0
+  min: 5
+  node:
+    messages: [dialogs.c104_progress_0_node_m0]
+- index: 0
+  min: 6
+  node:
+    yesno:
+      prompt:
+        messages: [dialogs.c104_progress_1_node_yesno_prompt_m0, dialogs.c104_progress_1_node_yesno_prompt_m1]
+      'yes':
+        messages:
+        - dialogs.c104_progress_1_node_yesno_yes_m0
+        - {set_flag: 32}
+        - dialogs.c104_progress_1_node_yesno_yes_m2
+      'no':
+        yesno:
+          prompt:
+            messages: [dialogs.c104_progress_1_node_yesno_no_yesno_prompt_m0, dialogs.c104_progress_1_node_yesno_no_yesno_prompt_m1]
+          'yes':
+            messages:
+            - {set_flag: 32}
+            - dialogs.c104_progress_1_node_yesno_no_yesno_yes_m1
+          'no':
+            messages: [dialogs.c104_progress_1_node_yesno_no_yesno_no_m0]
+- index: 0
+  min: 7
+  node:
+    messages: [dialogs.c104_progress_2_node_m0]
+- index: 0
+  min: 8
+  node:
+    messages: [dialogs.c104_progress_3_node_m0]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c104_progress_4_node_m0, dialogs.c104_progress_4_node_m1, dialogs.c104_progress_4_node_m2]
+- index: 0
+  min: 26
+  node:
+    messages: [dialogs.c104_progress_5_node_m0]

@@ -1,0 +1,6 @@
+# what character 255 says, by story progress
+set_flag_on_talk: 230
+clear:
+  messages: [dialogs.c255_clear_m0, dialogs.c255_clear_m1, dialogs.c255_clear_m2, dialogs.c255_clear_m3]
+set:
+  messages: [dialogs.c255_set_m0]

@@ -1,0 +1,7 @@
+# what character 170 says, by story progress
+check_flag: 40
+set:
+  messages: [dialogs.c170_set_m0]
+clear:
+  messages:
+  - {action: 41}

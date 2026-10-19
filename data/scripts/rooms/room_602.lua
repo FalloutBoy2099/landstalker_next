@@ -1,0 +1,37 @@
+-- Behaviours of room 602 (what its entities do: the scenes of the room, its platforms and gates). `behaviour: n` of room.yaml picks B[n].
+
+B[163] = function(e)
+  wait_trigger(e, 25)
+  set_flag(36)
+  pause_player()
+  move_to(e, 32, 36)
+  move_noclip(e, 104)
+  turn(e, 0)
+  move_noclip(e, 8)
+  turn_wait(e, 2)
+  move_noclip(e, 24)
+  pause(e, 60)
+  e.speed = 1
+  move_noclip(e, 8)
+  pause(e, 60)
+  move_noclip(e, 8)
+  pause(e, 40)
+  move_noclip(e, 8)
+  pause(e, 20)
+  e.speed = 4
+  turn(e, 2)
+  move_noclip(e, 4)
+  turn(e, 3)
+  move_noclip(e, 44)
+  turn(e, 2)
+  move_noclip(e, 20)
+  turn_wait(e, 0)
+  pause(e, 96)
+  turn(e, 2)
+  move_noclip(e, 52)
+  turn_wait(e, 0)
+  pause(e, 32)
+  turn(e, 3)
+  move_noclip(e, 60)
+  e.visible = false; e.base_visible = false; do return end
+end

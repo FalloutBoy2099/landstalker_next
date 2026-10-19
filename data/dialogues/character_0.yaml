@@ -1,0 +1,28 @@
+# what character 0 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    messages: [dialogs.c0_progress_0_node_m0]
+- index: 0
+  min: 1
+  node:
+    messages: [dialogs.c0_progress_1_node_m0]
+- index: 0
+  min: 2
+  node:
+    messages: [dialogs.c0_progress_2_node_m0]
+- index: 0
+  min: 4
+  node:
+    messages:
+    - {set_flag: 34}
+    - dialogs.c0_progress_3_node_m1
+    - dialogs.c0_progress_3_node_m2
+    - dialogs.c0_progress_3_node_m3
+    - {give_item: 40}
+    - dialogs.c0_progress_3_node_m5
+- index: 0
+  min: 5
+  node:
+    messages: [dialogs.c0_progress_4_node_m0]

@@ -1,0 +1,18 @@
+# what character 60 says, by story progress
+progress:
+- index: 0
+  min: 5
+  node:
+    messages: [dialogs.c60_progress_0_node_m0]
+- index: 2
+  min: 1
+  node:
+    messages: [dialogs.c60_progress_1_node_m0]
+- index: 2
+  min: 2
+  node:
+    messages: [dialogs.c60_progress_2_node_m0]
+- index: 2
+  min: 3
+  node:
+    messages: [dialogs.c60_progress_3_node_m0]

@@ -1,0 +1,14 @@
+# what character 225 says, by story progress
+progress:
+- index: 0
+  min: 26
+  node:
+    check_flag: 309
+    set:
+      messages: [dialogs.c225_progress_0_node_set_m0, dialogs.c225_progress_0_node_set_m1, dialogs.c225_progress_0_node_set_m2, dialogs.c225_progress_0_node_set_m3]
+    clear:
+      messages: [dialogs.c225_progress_0_node_clear_m0]
+- index: 0
+  min: 27
+  node:
+    messages: [dialogs.c225_progress_1_node_m0]

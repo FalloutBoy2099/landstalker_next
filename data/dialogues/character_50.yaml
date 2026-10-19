@@ -1,0 +1,29 @@
+# what character 50 says, by story progress
+progress:
+- index: 0
+  min: 16
+  node:
+    set_flag_on_talk: 201
+    clear:
+      yesno:
+        prompt:
+          messages: [dialogs.c50_progress_0_node_clear_yesno_prompt_m0, dialogs.c50_progress_0_node_clear_yesno_prompt_m1]
+        'yes':
+          messages: [dialogs.c50_progress_0_node_clear_yesno_yes_m0]
+        'no':
+          messages: [dialogs.c50_progress_0_node_clear_yesno_no_m0, dialogs.c50_progress_0_node_clear_yesno_no_m1]
+    set:
+      messages: [dialogs.c50_progress_0_node_set_m0]
+- index: 0
+  min: 17
+  node:
+    messages: [dialogs.c50_progress_1_node_m0]
+- index: 0
+  min: 19
+  node:
+    messages: [dialogs.c50_progress_2_node_m0, dialogs.c50_progress_2_node_m1]
+- index: 0
+  min: 29
+  node:
+    messages:
+    - {action: 250}

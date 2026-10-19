@@ -1,0 +1,8 @@
+# what character 27 says, by story progress
+check_flag: 8
+set:
+  messages: [dialogs.c27_set_m0]
+clear:
+  messages:
+  - {set_flag: 8}
+  - dialogs.c27_clear_m1

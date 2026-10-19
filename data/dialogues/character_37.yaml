@@ -1,0 +1,10 @@
+# what character 37 says, by story progress
+progress:
+- index: 0
+  min: 27
+  node:
+    messages: [dialogs.c37_progress_0_node_m0, dialogs.c37_progress_0_node_m1, dialogs.c37_progress_0_node_m2, dialogs.c37_progress_0_node_m3, dialogs.c37_progress_0_node_m4]
+- index: 0
+  min: 28
+  node:
+    messages: [dialogs.c37_progress_1_node_m0, dialogs.c37_progress_1_node_m1]

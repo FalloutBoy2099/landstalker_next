@@ -35,7 +35,7 @@ python tools/emuhawk/run.py --out DIR --state DIR0/state_select.State --end 700 
 `make_track.py LOG.csv OUT.track FIRST LAST [HANDOVER_ROOMS [EXTRA]]` turns a log of `analyze.entcols()` (every 2 frames) into the track the port plays
 (`track.rs`, `cutscene::track_update`): where every entity is, fades, captions, messages. `intro.track` was made with
 `run.py --state <file select> --input <C taps> --log $(python -c "import analyze; print(analyze.entcols())") --every 2` then
-`make_track.py log.csv data/cutscenes/intro.track 218 12500 142 intro_extra.txt`: rooms 139, 140, 141 are played from the recording, then the game's scripts take over in 142.
+`make_track.py log.csv data/scripts/intro/intro.track 218 12500 142 intro_extra.txt`: rooms 139, 140, 141 are played from the recording, then the game's scripts take over in 142.
 
 ## Warping to any room of the original (enemies, objects)
 The US ROM has a debug "next room" on controller 2 Start, switched off by `DebugModeEnable` (word at ROM offset 0x210 = $FFFF). Make a **copy** of the

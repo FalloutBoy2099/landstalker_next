@@ -1,0 +1,6 @@
+# what character 223 says, by story progress
+set_flag_on_talk: 208
+clear:
+  messages: [dialogs.c223_clear_m0, dialogs.c223_clear_m1]
+set:
+  messages: [dialogs.c223_set_m0]

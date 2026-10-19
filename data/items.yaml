@@ -1,0 +1,66 @@
+# items by index: name key (data/i18n items.yaml), base price in gold (above 1000: not sold), stack,
+# kind: usable (the item menu: what the player can use, in the order given), sword / armour / boots / ring (the equipment menu), pocket (only carried: never used)
+0: {name: items.ekeeke, price: 15, stack: 9, kind: usable, order: 0}
+1: {name: items.magic_sword, price: 1001, stack: 1, kind: sword}
+2: {name: items.sword_of_ice, price: 1002, stack: 1, kind: sword}
+3: {name: items.thunder_sword, price: 1003, stack: 1, kind: sword}
+4: {name: items.sword_of_gaia, price: 1004, stack: 1, kind: sword}
+5: {name: items.fireproof, price: 1005, stack: 1, kind: boots}
+6: {name: items.iron_boots, price: 1006, stack: 1, kind: boots}
+7: {name: items.healing_boots, price: 1007, stack: 1, kind: boots}
+8: {name: items.snow_spikes, price: 1008, stack: 1, kind: boots}
+9: {name: items.steel_breast, price: 320, stack: 1, kind: armour}
+10: {name: items.chrome_breast, price: 1010, stack: 1, kind: armour}
+11: {name: items.shell_breast, price: 1011, stack: 1, kind: armour}
+12: {name: items.hyper_breast, price: 1012, stack: 1, kind: armour}
+13: {name: items.mars_stone, price: 1013, stack: 1, kind: ring}
+14: {name: items.moon_stone, price: 1014, stack: 1, kind: ring}
+15: {name: items.saturn_stone, price: 1015, stack: 1, kind: ring}
+16: {name: items.venus_stone, price: 1016, stack: 1, kind: ring}
+17: {name: items.awakening_book, price: 50, stack: 1, kind: pocket}
+18: {name: items.detox_grass, price: 20, stack: 9, kind: usable, order: 3}
+19: {name: items.statue_of_gaia, price: 200, stack: 9, kind: usable, order: 19}
+20: {name: items.golden_statue, price: 200, stack: 9, kind: usable, order: 20}
+21: {name: items.mind_repair, price: 80, stack: 9, kind: usable, order: 4}
+22: {name: items.casino_ticket, price: 1022, stack: 9, kind: pocket}
+23: {name: items.axe_magic, price: 1023, stack: 1, kind: pocket}
+24: {name: items.blue_ribbon, price: 1024, stack: 1, kind: usable, order: 13}
+25: {name: items.buyer_card, price: 1025, stack: 1, kind: pocket}
+26: {name: items.lantern, price: 1026, stack: 1, kind: usable, order: 11}
+27: {name: items.garlic, price: 1027, stack: 1, kind: usable, order: 12}
+28: {name: items.antiparalyze, price: 100, stack: 9, kind: usable, order: 5}
+29: {name: items.statue_of_jypta, price: 2000, stack: 1, kind: pocket}
+30: {name: items.sun_stone, price: 1030, stack: 1, kind: pocket}
+31: {name: items.armlet, price: 1031, stack: 1, kind: pocket}
+32: {name: items.einstein_whistle, price: 1032, stack: 1, kind: usable, order: 14}
+33: {name: items.detox_book, price: 10, stack: 1, kind: usable, order: 6}
+34: {name: items.anticurse, price: 50, stack: 1, kind: usable, order: 7}
+35: {name: items.record_book, price: 0, stack: 1, kind: pocket}
+36: {name: items.spell_book, price: 100, stack: 1, kind: usable, order: 8}
+37: {name: items.hotel_register, price: 20, stack: 1, kind: pocket}
+38: {name: items.island_map, price: 0, stack: 1, kind: pocket}
+39: {name: items.lithograph, price: 1039, stack: 1, kind: usable, order: 22}
+40: {name: items.red_jewel, price: 1040, stack: 1, kind: pocket}
+41: {name: items.pawn_ticket, price: 1041, stack: 1, kind: usable, order: 23}
+42: {name: items.purple_jewel, price: 1042, stack: 1, kind: pocket}
+43: {name: items.gola_s_eye, price: 1043, stack: 1, kind: usable, order: 24}
+44: {name: items.death_statue, price: 500, stack: 1, kind: usable, order: 21}
+45: {name: items.dahl, price: 300, stack: 9, kind: usable, order: 1}
+46: {name: items.restoration, price: 200, stack: 9, kind: usable, order: 9}
+47: {name: items.logs, price: 1047, stack: 2, kind: usable, order: 16}
+48: {name: items.oracle_stone, price: 1500, stack: 1, kind: usable, order: 18}
+49: {name: items.idol_stone, price: 1049, stack: 1, kind: usable, order: 17}
+50: {name: items.key, price: 1050, stack: 9, kind: usable, order: 10}
+51: {name: items.safety_pass, price: 1051, stack: 1, kind: pocket}
+52: {name: items.no52, price: 1, stack: 0, kind: pocket}
+53: {name: items.bell, price: 500, stack: 1, kind: usable, order: 15}
+54: {name: items.short_cake, price: 200, stack: 1, kind: usable, order: 2}
+55: {name: items.gola_s_nail, price: 1055, stack: 1, kind: pocket}
+56: {name: items.gola_s_horn, price: 1056, stack: 1, kind: pocket}
+57: {name: items.gola_s_fang, price: 1057, stack: 1, kind: pocket}
+58: {name: items.broad_sword, price: 1058, stack: 1, kind: pocket}
+59: {name: items.leather_breast, price: 1059, stack: 1, kind: pocket}
+60: {name: items.leather_boots, price: 1060, stack: 1, kind: pocket}
+61: {name: items.none, price: 1061, stack: 1, kind: pocket}
+62: {name: items.life_stock, price: 300, stack: 1, kind: pocket}
+63: {name: items.no63, price: 1, stack: 0, kind: pocket}

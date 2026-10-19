@@ -1,0 +1,26 @@
+# what character 25 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c25_progress_0_node_m0, dialogs.c25_progress_0_node_m1]
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c25_progress_1_node_m0, dialogs.c25_progress_1_node_m1]
+- index: 0
+  min: 23
+  node:
+    messages: [dialogs.c25_progress_2_node_m0]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c25_progress_3_node_m0, dialogs.c25_progress_3_node_m1]
+- index: 0
+  min: 29
+  node:
+    check_flag: 330
+    set:
+      messages: [dialogs.c25_progress_4_node_set_m0]
+    clear:
+      messages: [dialogs.c25_progress_4_node_clear_m0, dialogs.c25_progress_4_node_clear_m1]

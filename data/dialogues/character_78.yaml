@@ -1,0 +1,10 @@
+# what character 78 says, by story progress
+progress:
+- index: 0
+  min: 2
+  node:
+    messages: [dialogs.c78_progress_0_node_m0]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c78_progress_1_node_m0]

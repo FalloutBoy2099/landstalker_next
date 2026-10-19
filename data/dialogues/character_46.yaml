@@ -1,0 +1,15 @@
+# what character 46 says, by story progress
+progress:
+- index: 0
+  min: 23
+  node:
+    messages: [dialogs.c46_progress_0_node_m0]
+- index: 0
+  min: 29
+  node:
+    set_flag_on_talk: 231
+    clear:
+      messages: [dialogs.c46_progress_1_node_clear_m0, dialogs.c46_progress_1_node_clear_m1, dialogs.c46_progress_1_node_clear_m2, dialogs.c46_progress_1_node_clear_m3,
+        dialogs.c46_progress_1_node_clear_m4]
+    set:
+      messages: [dialogs.c46_progress_1_node_set_m0]

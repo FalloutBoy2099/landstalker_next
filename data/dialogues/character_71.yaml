@@ -1,0 +1,20 @@
+# what character 71 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    yesno:
+      prompt:
+        messages: [dialogs.c71_progress_0_node_yesno_prompt_m0, dialogs.c71_progress_0_node_yesno_prompt_m1]
+      'yes':
+        messages: [dialogs.c71_progress_0_node_yesno_yes_m0]
+      'no':
+        messages: [dialogs.c71_progress_0_node_yesno_no_m0, dialogs.c71_progress_0_node_yesno_no_m1]
+- index: 0
+  min: 2
+  node:
+    messages: [dialogs.c71_progress_1_node_m0, dialogs.c71_progress_1_node_m1]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c71_progress_2_node_m0]

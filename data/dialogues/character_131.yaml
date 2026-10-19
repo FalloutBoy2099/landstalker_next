@@ -1,0 +1,30 @@
+# what character 131 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c131_progress_0_node_m0]
+- index: 1
+  min: 1
+  node:
+    messages: [dialogs.c131_progress_1_node_m0]
+- index: 1
+  min: 2
+  node:
+    check_flag: 339
+    set:
+      messages: [dialogs.c131_progress_2_node_set_m0]
+    clear:
+      messages: [dialogs.c131_progress_2_node_clear_m0]
+- index: 0
+  min: 26
+  node:
+    check_flag: 338
+    set:
+      messages: [dialogs.c131_progress_3_node_set_m0]
+    clear:
+      messages: [dialogs.c131_progress_3_node_clear_m0]
+- index: 1
+  min: 3
+  node:
+    messages: [dialogs.c131_progress_4_node_m0]

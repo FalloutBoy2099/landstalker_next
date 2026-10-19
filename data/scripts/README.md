@@ -16,7 +16,7 @@ A script is a coroutine run once per script tick (60 per second, one per frame o
 orientation (0 NE, 1 SE, 2 SW, 3 NW), speed, visible, hostile, gravity, solid, falls, hbase, hheight ...`.
 Everything the game gives to Lua: `step(e)`, `floor_height(cx, cy)`, `overlaps_player(e)`, `trigger_program(n)`,
 `flag(n)`, `set_flag(n)`, `clear_flag(n)`, `sfx(n)`, `log(text)` and the player `P` (x, y, z, facing, grounded, support).
-`camera_focus(i)` centres the camera on entity `i` (0-based, `e.i`) and `camera_focus(-1)` gives it back to Nigel: it glides from one to the other. A story action started by a dormant enemy (a boss waking up) looks at it by itself, until the action is over. A room change resets it.
+`t(key)` gives the text of an i18n key (`data/i18n/<language>/`): scripts only handle keys, never literal texts. `camera_focus(i)` centres the camera on entity `i` (0-based, `e.i`) and `camera_focus(-1)` gives it back to Nigel: it glides from one to the other. A story action started by a dormant enemy (a boss waking up) looks at it by itself, until the action is over. A room change resets it.
 
 Debug: `LS_LOG_SCRIPT=1` prints flags and sounds, `LS_ON=n` pretends the player stands on entity n.
 

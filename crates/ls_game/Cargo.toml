@@ -16,6 +16,7 @@ anyhow.workspace = true
 bevy_egui = "0.43"
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde_json = "1"
+sys-locale = "0.3"
 mlua = { version = "0.12.2", features = ["lua54", "vendored"] }
 lewton = "0.10.2"
 claxon = "0.4.3"

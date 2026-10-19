@@ -1,5 +1,5 @@
 //! The playtest panel (egui, on the right of the window): room number and room changer, health, notes per room
-//! (saved in playtest_notes.json next to the exe) and a capture button (F12): the game freezes, drag a rectangle
+//! (saved in playtest_notes.yaml next to the exe) and a capture button (F12): the game freezes, drag a rectangle
 //! over the picture and it is saved in screenshots/ next to the exe, its name being added to the room's notes.
 
 use bevy::prelude::*;
@@ -33,23 +33,26 @@ pub struct Playtest {
     message: Option<(String, f32)>,
     capture: Capture,
     dir: PathBuf,
+    /// the flags table: which block of 128 flags is shown (4 = those above 511 that are set), and only the flags that are set
+    flags_block: usize,
+    flags_set_only: bool,
 }
 
 impl Playtest {
     pub fn new() -> Playtest {
         let dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())).unwrap_or_else(|| PathBuf::from("."));
-        let notes = std::fs::read_to_string(dir.join("playtest_notes.json"))
+        let notes = std::fs::read_to_string(dir.join("playtest_notes.yaml"))
             .ok()
-            .and_then(|t| serde_json::from_str::<BTreeMap<String, String>>(&t).ok())
+            .and_then(|t| serde_yaml::from_str::<BTreeMap<String, String>>(&t).ok())
             .map(|m| m.into_iter().filter_map(|(k, v)| k.parse::<i32>().ok().map(|k| (k, v))).collect())
             .unwrap_or_default();
-        Playtest { notes, shown_room: -1, text: String::new(), room_field: String::new(), dirty: false, save_timer: 0.0, message: None, capture: Capture::Idle, dir }
+        Playtest { notes, shown_room: -1, text: String::new(), room_field: String::new(), dirty: false, save_timer: 0.0, message: None, capture: Capture::Idle, dir, flags_block: 0, flags_set_only: false }
     }
 
     fn save(&mut self) {
         let map: BTreeMap<String, &String> = self.notes.iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| (k.to_string(), v)).collect();
-        if let Ok(text) = serde_json::to_string_pretty(&map) {
-            let _ = std::fs::write(self.dir.join("playtest_notes.json"), text);
+        if let Ok(text) = serde_yaml::to_string(&map) {
+            let _ = std::fs::write(self.dir.join("playtest_notes.yaml"), text);
         }
         self.dirty = false;
         self.save_timer = 0.0;
@@ -107,6 +110,16 @@ fn timestamp() -> String {
     format!("{:04}{:02}{:02}_{:02}{:02}{:02}", y, m, d, rem / 3600, (rem % 3600) / 60, rem % 60)
 }
 
+/// What the panel needs besides the playtest: the effects, the TAS and the recorder (a bundle: a system takes only so many parameters).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct DebugTools<'w, 's> {
+    pub config: ResMut<'w, crate::config::Config>,
+    pub effects: ResMut<'w, crate::effects::EffectsData>,
+    pub tas: ResMut<'w, crate::tas::TasPlayer>,
+    pub recorder: ResMut<'w, crate::bot::Recorder>,
+    pub status: Local<'s, String>,
+}
+
 pub fn panel(
     mut contexts: EguiContexts,
     mut pt: ResMut<Playtest>,
@@ -116,6 +129,11 @@ pub fn panel(
     mut request: ResMut<RoomRequest>,
     mut frozen: ResMut<GameFrozen>,
     lock: Res<ControlLock>,
+    players: Query<&crate::Player>,
+    mut save_request: ResMut<crate::save::SaveRequest>,
+    mut tools: DebugTools,
+    mut cut: ResMut<crate::cutscene::Cutscene>,
+    script: NonSend<crate::scripting::Scripting>,
     time: Res<Time>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut commands: Commands,
@@ -176,55 +194,181 @@ pub fn panel(
     let mut want_capture = false;
     let mut viewport_ui = egui::Ui::new(ctx.clone(), "viewport".into(), egui::UiBuilder::new().layer_id(egui::LayerId::background()).max_rect(ctx.viewport_rect()));
     egui::Panel::right("playtest").exact_size(PANEL_W).resizable(false).show(&mut viewport_ui, |ui| {
-        ui.heading(format!("Room {}", id));
-        ui.label(&room.room.file.path);
-        let (text, color) = match &lock.0 {
-            None => ("YOU PLAY".to_string(), egui::Color32::from_rgb(40, 140, 70)),
-            Some(why) => (format!("NO CONTROL: {}", why), egui::Color32::from_rgb(200, 50, 50)),
-        };
-        ui.label(egui::RichText::new(format!("  {}  ", text)).color(egui::Color32::WHITE).background_color(color).strong());
-        ui.separator();
+      egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // < Room x >  description
         ui.horizontal(|ui| {
             if ui.button("<").clicked() {
                 go = index.neighbour(id, -1);
             }
-            let r = ui.add(egui::TextEdit::singleline(&mut pt.room_field).desired_width(70.0));
-            if ui.button("GO").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+            let r = ui.add(egui::TextEdit::singleline(&mut pt.room_field).desired_width(46.0));
+            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 go = pt.room_field.trim().parse().ok();
             }
             if ui.button(">").clicked() {
                 go = index.neighbour(id, 1);
             }
+            ui.label(egui::RichText::new(room.room.file.path.rsplit('/').next().unwrap_or("")).strong());
         });
+        ui.label(egui::RichText::new(&room.room.file.path).small().weak());
+        // < HP x > >>   < EkeEke > >>   < Gold > >>
         ui.horizontal(|ui| {
-            if ui.button("HP-").clicked() {
+            if ui.small_button("<").clicked() {
                 let n = game.max_hp() - 1;
                 game.set_max_hp(n);
             }
-            if ui.button("HP+").clicked() {
+            ui.label(format!("HP {}/{}", game.hp(), game.max_hp()));
+            if ui.small_button(">").clicked() {
                 let n = game.max_hp() + 1;
                 game.set_max_hp(n);
             }
-            if ui.button("FULL").clicked() {
+            if ui.small_button(">>").on_hover_text("heal fully").clicked() {
                 game.health = game.max_health;
             }
-            ui.label(format!("{}/{}", game.hp(), game.max_hp()));
+            ui.separator();
+            if ui.small_button("<").clicked() && game.item_count(crate::game::ITEM_EKEEKE) > 0 {
+                game.use_item(crate::game::ITEM_EKEEKE);
+            }
+            ui.label(format!("EkeEke {}", game.item_count(crate::game::ITEM_EKEEKE)));
+            if ui.small_button(">").clicked() {
+                game.add_item(crate::game::ITEM_EKEEKE);
+            }
+            if ui.small_button(">>").on_hover_text("+10").clicked() {
+                for _ in 0..10 {
+                    game.add_item(crate::game::ITEM_EKEEKE);
+                }
+            }
         });
-        if ui.add_sized([ui.available_width(), 32.0], egui::Button::new("CAPTURE  (F12)")).clicked() {
-            want_capture = true;
+        ui.horizontal(|ui| {
+            if ui.small_button("<").clicked() {
+                game.gold = (game.gold - 10).max(0);
+            }
+            ui.label(format!("Gold {}", game.gold));
+            if ui.small_button(">").clicked() {
+                game.gold += 10;
+            }
+            if ui.small_button(">>").on_hover_text("+100").clicked() {
+                game.gold += 100;
+            }
+        });
+        ui.separator();
+        // X/Y - [You Play][Cutscene]
+        ui.horizontal(|ui| {
+            if let Ok(p) = players.single() {
+                ui.label(format!("X {:.1} / Y {:.1}", p.x, p.y));
+            }
+            ui.label("-");
+            let (play, cutscene) = (lock.0.is_none(), lock.0.is_some());
+            let badge = |ui: &mut egui::Ui, text: &str, on: bool, color: egui::Color32| {
+                let rich = egui::RichText::new(format!(" {} ", text)).strong();
+                ui.label(if on { rich.color(egui::Color32::WHITE).background_color(color) } else { rich.weak() });
+            };
+            badge(ui, "Play", play, egui::Color32::from_rgb(40, 140, 70));
+            badge(ui, "Cutscene", cutscene, egui::Color32::from_rgb(200, 50, 50));
+            // who started the game: the player, or an LLM (LS_LLM=1, or any of the test aids LS_BOT / LS_AUTOPLAY)
+            ui.label("-");
+            let llm = ["LS_LLM", "LS_BOT", "LS_AUTOPLAY"].iter().any(|k| std::env::var(k).is_ok());
+            badge(ui, "Human", !llm, egui::Color32::from_rgb(40, 100, 180));
+            badge(ui, "LLM", llm, egui::Color32::from_rgb(150, 70, 190));
+        });
+        if let Some(why) = &lock.0 {
+            ui.label(egui::RichText::new(why).small().weak());
         }
         ui.separator();
-        ui.label("Notes for this room");
-        let h = (ui.available_height() - 40.0).max(80.0);
-        let r = ui.add_sized([ui.available_width(), h], egui::TextEdit::multiline(&mut pt.text).hint_text("What is wrong in this room?"));
-        if r.changed() {
-            pt.dirty = true;
-            pt.save_timer = 0.0;
+        // Load / Save / Capture
+        ui.horizontal(|ui| {
+            if ui.button("Load").clicked() {
+                save_request.load = true;
+            }
+            if ui.button("Save").clicked() {
+                save_request.save = true;
+            }
+            if ui.button("Capture (F12)").clicked() {
+                want_capture = true;
+            }
+            // Record: the keys and the positions of a room go to recordings/room_<id>.txt (one file per room), from the first key pressed
+            use crate::bot::RecMode;
+            let red = egui::Color32::from_rgb(200, 50, 50);
+            let button = |ui: &mut egui::Ui, mode: RecMode, off: &str, on: &str, tip: &str, recorder: &mut crate::bot::Recorder| -> bool {
+                let active = recorder.mode == mode;
+                let label = if active {
+                    let text = if recorder.writing() { on.to_string() } else { format!("{} (waits)", on) };
+                    egui::RichText::new(text).color(egui::Color32::WHITE).background_color(red)
+                } else {
+                    egui::RichText::new(off)
+                };
+                if ui.button(label).on_hover_text(tip).clicked() {
+                    if active {
+                        recorder.stop();
+                    } else {
+                        recorder.start(mode, id);
+                    }
+                    return true;
+                }
+                false
+            };
+            let a = button(ui, RecMode::Room, "Rec room", "Stop rec", "records this room, from your first key; stops when the room changes", &mut tools.recorder);
+            let b = button(ui, RecMode::Continuous, "Rec / Stop", "Stop rec", "records every room, one file per room, until you stop", &mut tools.recorder);
+            if a || b {
+                let m = if tools.recorder.active() { format!("Recording ({:?}) from the first key", tools.recorder.mode) } else { "Recording stopped".to_string() };
+                pt.say(m);
+            }
+        });
+        ui.separator();
+        // the story flags: every one with its value; a click sets or clears it (the rooms, the entities and the tile swaps follow)
+        ui.label(egui::RichText::new(format!("Flags ({} set)", script.flags().len())).strong());
+        {
+            ui.horizontal_wrapped(|ui| {
+                for (i, label) in ["0-127", "128-255", "256-383", "384-511", "512+"].iter().enumerate() {
+                    if ui.selectable_label(pt.flags_block == i, *label).clicked() {
+                        pt.flags_block = i;
+                    }
+                }
+                ui.checkbox(&mut pt.flags_set_only, "set only");
+            });
+            let mut list: Vec<i32> = if pt.flags_block < 4 { (pt.flags_block as i32 * 128..(pt.flags_block as i32 + 1) * 128).collect() } else { script.flags().into_iter().filter(|f| *f >= 512).collect() };
+            list.sort();
+            let mut toggle: Option<(i32, bool)> = None;
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                egui::Grid::new("flags_grid").spacing([4.0, 2.0]).show(ui, |ui| {
+                    let mut column = 0;
+                    for n in list.iter().copied() {
+                        let on = script.flag(n);
+                        if pt.flags_set_only && !on {
+                            continue;
+                        }
+                        let text = egui::RichText::new(format!("{:>4}", n)).monospace().size(12.0);
+                        let button = if on { egui::Button::new(text.color(egui::Color32::BLACK)).fill(egui::Color32::from_rgb(110, 210, 120)) } else { egui::Button::new(text.weak()) };
+                        if ui.add(button.min_size(egui::vec2(44.0, 0.0))).on_hover_text(format!("flag {} = {} (byte {}, bit {})", n, if on { "set" } else { "clear" }, n >> 3, n & 7)).clicked() {
+                            toggle = Some((n, !on));
+                        }
+                        column += 1;
+                        if column % 6 == 0 {
+                            ui.end_row();
+                        }
+                    }
+                });
+            });
+            if let Some((n, on)) = toggle {
+                script.set_flag_to(n, on);
+                pt.say(format!("Flag {} {}", n, if on { "set" } else { "cleared" }));
+            }
         }
+        ui.separator();
+        // no text box for notes: a field that has the focus takes every key of the keyboard away from the game
         if let Some((m, _)) = &pt.message {
             ui.colored_label(egui::Color32::from_rgb(120, 230, 140), m);
         }
+        ui.separator();
+        crate::effects::effects_ui(ui, &mut tools.config, &mut tools.effects, id, &room.room.file.path, &mut tools.status);
+        ui.separator();
+        crate::tas::tas_ui(ui, id, &mut tools.recorder, &mut tools.tas);
+      });
     });
+    // a thin frame when the keyboard belongs to the panel (a field has the focus): the game does not hear the keys
+    if ctx.egui_wants_keyboard_input() {
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("focus_frame")));
+        painter.rect_stroke(ctx.viewport_rect().shrink(1.0), 0.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(240, 160, 40)), egui::StrokeKind::Inside);
+    }
     if want_capture {
         start_capture(&mut pt, &mut commands, &mut frozen);
     }
@@ -232,6 +376,8 @@ pub fn panel(
         if index.contains(n) {
             pt.commit();
             request.0 = Some(n);
+            crate::versions::ask_directly();
+            cut.abort = true;
         } else {
             pt.say(format!("No room {}", n));
             pt.room_field = id.to_string();

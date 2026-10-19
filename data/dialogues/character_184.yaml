@@ -1,0 +1,15 @@
+# what character 184 says, by story progress
+progress:
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c184_progress_0_node_m0]
+- index: 0
+  min: 26
+  node:
+    check_flag: 217
+    set:
+      messages: [dialogs.c184_progress_1_node_set_m0, dialogs.c184_progress_1_node_set_m1]
+    clear:
+      messages:
+      - {action: 209}

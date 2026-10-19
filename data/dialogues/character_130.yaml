@@ -1,0 +1,41 @@
+# what character 130 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    set_flag_on_talk: 199
+    clear:
+      messages: [dialogs.c130_progress_0_node_clear_m0, dialogs.c130_progress_0_node_clear_m1, dialogs.c130_progress_0_node_clear_m2, dialogs.c130_progress_0_node_clear_m3,
+        dialogs.c130_progress_0_node_clear_m4]
+    set:
+      messages: [dialogs.c130_progress_0_node_set_m0]
+- index: 1
+  min: 1
+  node:
+    messages: [dialogs.c130_progress_1_node_m0, dialogs.c130_progress_1_node_m1, dialogs.c130_progress_1_node_m2]
+- index: 1
+  min: 2
+  node:
+    messages: [dialogs.c130_progress_2_node_m0]
+- index: 0
+  min: 26
+  node:
+    check_flag: 338
+    set:
+      messages: [dialogs.c130_progress_3_node_set_m0, dialogs.c130_progress_3_node_set_m1]
+    clear:
+      set_flag_on_talk: 199
+      clear:
+        messages: [dialogs.c130_progress_3_node_clear_clear_m0, dialogs.c130_progress_3_node_clear_clear_m1, dialogs.c130_progress_3_node_clear_clear_m2, dialogs.c130_progress_3_node_clear_clear_m3,
+          dialogs.c130_progress_3_node_clear_clear_m4]
+      set:
+        messages: [dialogs.c130_progress_3_node_clear_set_m0]
+- index: 1
+  min: 3
+  node:
+    set_flag_on_talk: 221
+    clear:
+      messages: [dialogs.c130_progress_4_node_clear_m0, dialogs.c130_progress_4_node_clear_m1, dialogs.c130_progress_4_node_clear_m2, dialogs.c130_progress_4_node_clear_m3,
+        dialogs.c130_progress_4_node_clear_m4]
+    set:
+      messages: [dialogs.c130_progress_4_node_set_m0]

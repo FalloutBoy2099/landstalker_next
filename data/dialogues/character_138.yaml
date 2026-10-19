@@ -1,0 +1,19 @@
+# what character 138 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c138_progress_0_node_m0]
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c138_progress_1_node_m0]
+- index: 0
+  min: 29
+  node:
+    check_flag: 330
+    set:
+      messages: [dialogs.c138_progress_2_node_set_m0]
+    clear:
+      messages:
+      - {action: 299}

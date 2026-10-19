@@ -1,0 +1,6 @@
+# what character 9 says, by story progress
+set_flag_on_talk: 194
+clear:
+  messages: [dialogs.c9_clear_m0, dialogs.c9_clear_m1]
+set:
+  messages: [dialogs.c9_set_m0]

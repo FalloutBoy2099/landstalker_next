@@ -47,8 +47,21 @@ if #cols > 0 then
   log:write(table.concat(h, ",") .. "\n")
 end
 
+-- LS_HAWK_SOUND=1: every sound the game asks for (the 68000 queues it in unk_FF0FA0..FA7 before the Z80 plays it) goes to sound.csv: frame,value
+local sound
+if env("LS_HAWK_SOUND", "") ~= "" then
+  sound = io.open(out .. "/sound.csv", "w")
+  sound:write("frame,address,value" .. string.char(10))
+  for _, a in ipairs({ 0xFF0FA0, 0xFF0FA2, 0xFF0FA4, 0xFF0FA6 }) do
+    event.onmemorywrite(function(addr, val)
+      local v = memory.read_u16_be(a, bus)
+      if v ~= 0 then sound:write(emu.framecount() .. "," .. a .. "," .. v .. string.char(10)) end
+    end, a, "snd" .. a, bus)
+  end
+end
 if env("LS_HAWK_STATE", "") ~= "" then savestate.load(env("LS_HAWK_STATE")) end
 local last = tonumber(env("LS_HAWK_END", "600"))
+if sound then sound:write("base,0," .. emu.framecount() .. string.char(10)) end
 for frame = 0, last do
   while steps[nstep] and steps[nstep][1] <= frame do
     held[steps[nstep][3]] = steps[nstep][2] or nil
@@ -67,4 +80,5 @@ for frame = 0, last do
   emu.frameadvance()
 end
 if log then log:close() end
+if sound then sound:close() end
 client.exit()

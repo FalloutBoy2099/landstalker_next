@@ -37,7 +37,8 @@ impl Tuning {
     }
 }
 pub const PLAYER_HEIGHT: f32 = 2.0;
-pub const PLAYER_RADIUS: f32 = 0.4;
+/// half the width of Nigel's box: 7/16 of a cell (the original's hit box is 14 pixels wide)
+pub const PLAYER_RADIUS: f32 = 7.0 / 16.0;
 /// Rise walked over onto a stair cell (floor type 5).
 pub const STAIR_STEP: f32 = 1.0;
 /// An entity this low (or lower) above the feet counts as the floor to stand on.
@@ -348,5 +349,118 @@ mod tests {
         let mut b = body(15.5, 5.5, 4.0);
         walk(&w, &mut b, -4.5, 0.0, 0.5);
         assert!(b.grounded && b.z == 2.0 && b.x < 15.0, "fell from the ledge (4) onto the stairs (2): {:?}", b);
+    }
+
+    #[test]
+    fn the_narrow_corridor_of_the_mayors_hut_is_helped() {
+        // the corridor to the door (22, 17) is one cell wide (row 17, from x = 21): a little off its middle line, Nigel is pushed back onto it
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/rooms/room_593");
+        let Ok(room) = ls_data::Room::load(&dir) else { return };
+        let t = Tuning { step_up: 0.15, ..Tuning::default() };
+        // moving south-east (+x) from x = 20.5: the corner on the row 16 side is a wall, the other is the corridor
+        assert_eq!(nudge_direction(&room, &t, 20.5, 17.4, 0.0, 1.0, 0.0), Some((0.0, 1.0)));
+        assert_eq!(nudge_direction(&room, &t, 20.5, 17.6, 0.0, 1.0, 0.0), Some((0.0, -1.0)));
+    }
+
+    #[test]
+    fn the_keys_follow_the_axis_he_faces() {
+        // facing north-east (1): up and right go north-east, down and left south-west
+        assert_eq!(input_direction([true, false, false, false], 1, false), (0.0, -1.0));
+        assert_eq!(input_direction([false, false, false, true], 1, false), (0.0, -1.0));
+        assert_eq!(input_direction([false, true, false, false], 1, false), (0.0, 1.0));
+        assert_eq!(input_direction([false, false, true, false], 1, false), (0.0, 1.0));
+        // facing north-west (0) or south-east (2): up and left go north-west, right and down south-east
+        assert_eq!(input_direction([true, false, false, false], 0, false), (-1.0, 0.0));
+        assert_eq!(input_direction([false, false, true, false], 2, false), (-1.0, 0.0));
+        assert_eq!(input_direction([false, false, false, true], 0, false), (1.0, 0.0));
+        assert_eq!(input_direction([false, true, false, false], 2, false), (1.0, 0.0));
+        // two keys are the diagonals of the screen, whatever he faces
+        assert_eq!(input_direction([true, false, true, false], 1, false), (-1.0, 0.0));
+        assert_eq!(input_direction([true, false, false, true], 0, false), (0.0, -1.0));
+        assert_eq!(input_direction([false, true, false, true], 3, false), (1.0, 0.0));
+        assert_eq!(input_direction([false, true, true, false], 0, false), (0.0, 1.0));
+        // opposite keys together do nothing; confused reverses everything
+        assert_eq!(input_direction([true, true, false, false], 0, false), (0.0, 0.0));
+        assert_eq!(input_direction([true, false, true, false], 1, true), (1.0, 0.0));
+    }
+
+    #[test]
+    fn a_narrow_door_pushes_him_towards_the_opening() {
+        // a wall along y = 5 (cells y <= 5 blocked) with a door at x = 10
+        let mut g = grid();
+        for x in 0..20 {
+            for y in 0..=5 {
+                g.0.get_mut(&(x, y)).unwrap().flags = if x != 10 { 4 } else { 0 };
+                g.0.get_mut(&(x, y)).unwrap().height = 0;
+            }
+        }
+        for x in 0..20 {
+            g.0.get_mut(&(x, 6)).unwrap().flags = 0;
+        }
+        let t = Tuning { step_up: 1.0, ..Tuning::default() };
+        // against the wall, north-east, a little left of the door (the box overlaps cell 9 and 10): pushed towards the door, south-east
+        assert_eq!(nudge_direction(&g, &t, 10.1, 6.44, 0.0, 0.0, -1.0), Some((1.0, 0.0)));
+        // a little right of it: north-west
+        assert_eq!(nudge_direction(&g, &t, 10.9, 6.44, 0.0, 0.0, -1.0), Some((-1.0, 0.0)));
+        // on the door: nothing to push (both corners free)
+        assert_eq!(nudge_direction(&g, &t, 10.5, 6.44, 0.0, 0.0, -1.0), None);
+        // far from it: both corners are the wall
+        assert_eq!(nudge_direction(&g, &t, 14.5, 6.44, 0.0, 0.0, -1.0), None);
+    }
+}
+
+/// What the direction keys ask, as the original reads them (HandleDirectionalControl): two keys together are the screen diagonal (up + right = north-east...);
+/// a single key goes along the axis Nigel already faces: up and right are north-east when he faces north-east or south-west (else up is north-west and right
+/// south-east), down and left are south-west (else down is south-east and left north-west). Confused: every key is the opposite one.
+/// `pressed` = [up, down, left, right]; `facing` 0 NW, 1 NE, 2 SE, 3 SW; the result is the step along (x, y).
+pub fn input_direction(pressed: [bool; 4], facing: u8, confused: bool) -> (f32, f32) {
+    let [mut up, mut down, mut left, mut right] = pressed;
+    if confused {
+        std::mem::swap(&mut up, &mut down);
+        std::mem::swap(&mut left, &mut right);
+    }
+    // NW (facing 0) and SE (2): bit 6 of the original's RotationAndSize
+    let nw_se = facing & 1 == 0;
+    const NE: (f32, f32) = (0.0, -1.0);
+    const NW: (f32, f32) = (-1.0, 0.0);
+    const SE: (f32, f32) = (1.0, 0.0);
+    const SW: (f32, f32) = (0.0, 1.0);
+    match (up, down, left, right) {
+        (true, false, true, false) => NW,
+        (false, true, true, false) => SW,
+        (true, false, false, true) => NE,
+        (false, true, false, true) => SE,
+        (true, false, false, false) => if nw_se { NW } else { NE },
+        (false, false, false, true) => if nw_se { SE } else { NE },
+        (false, true, false, false) => if nw_se { SE } else { SW },
+        (false, false, true, false) => if nw_se { NW } else { SW },
+        _ => (0.0, 0.0),
+    }
+}
+
+/// The original's help at a narrow passage: when a step (dx, dy) along an axis is stopped by a wall (or a step too high) at one corner of Nigel's box but not at
+/// the other, he is pushed 1/16 of a cell towards the corner that is free, and turns that way (the next frame the keys read along it, so he slides along the wall
+/// to the opening). Moving north-east or south-west the sides are north-west (the low x side, tried first) and south-east; moving north-west or south-east
+/// they are north-east (low y first) and south-west.
+pub fn nudge_direction(terrain: &dyn Terrain, tuning: &Tuning, x: f32, y: f32, z: f32, dx: f32, dy: f32) -> Option<(f32, f32)> {
+    const EPS: f32 = 1.0 / 16.0;
+    let free = |px: f32, py: f32| -> bool {
+        terrain.cell(px.floor() as i32, py.floor() as i32).is_some_and(|c| {
+            let allowed = if c.floor_type == 5 { STAIR_STEP.max(tuning.step_up) } else { tuning.step_up };
+            !c.blocked() && c.height as f32 <= z + allowed + 1e-4
+        })
+    };
+    let r = PLAYER_RADIUS;
+    let ((low, high), (to_low, to_high)) = if dy != 0.0 {
+        let lead = y + dy.signum() * (r + EPS);
+        (((x - r, lead), (x + r, lead)), ((-1.0, 0.0), (1.0, 0.0)))
+    } else {
+        let lead = x + dx.signum() * (r + EPS);
+        (((lead, y - r), (lead, y + r)), ((0.0, -1.0), (0.0, 1.0)))
+    };
+    match (free(low.0, low.1), free(high.0, high.1)) {
+        (true, false) => Some(to_low),
+        (false, true) => Some(to_high),
+        _ => None,
     }
 }

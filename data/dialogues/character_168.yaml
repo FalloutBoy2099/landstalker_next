@@ -1,0 +1,34 @@
+# what character 168 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages:
+    - {set_flag: 200}
+    - dialogs.c168_progress_0_node_m1
+    - dialogs.c168_progress_0_node_m2
+- index: 0
+  min: 15
+  node:
+    messages: [dialogs.c168_progress_1_node_m0]
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c168_progress_2_node_m0, dialogs.c168_progress_2_node_m1]
+- index: 0
+  min: 23
+  node:
+    set_flag_on_talk: 220
+    clear:
+      messages:
+      - {action: 239}
+    set:
+      messages: [dialogs.c168_progress_3_node_set_m0]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c168_progress_4_node_m0]
+- index: 0
+  min: 29
+  node:
+    messages: [dialogs.c168_progress_5_node_m0]

@@ -17,11 +17,13 @@ ap.add_argument('--hawk', default=r'D:\Roms\Hawk\EmuHawk.exe')
 ap.add_argument('--script', default='hawk.lua', help='the Lua driver (hawk.lua, warp.lua)')
 ap.add_argument('--warp', default='', help='warp.lua: room to warp to')
 ap.add_argument('--poke', default='', help='warp.lua: RAM bytes to write after the warp, Name=value,...')
+ap.add_argument('--pre-poke', default='', dest='pre_poke', help='warp.lua: RAM bytes to write BEFORE the warp (story flags), Name=value or 0xADDR=value,...')
+ap.add_argument('--sound', action='store_true', help='log the sounds the game requests (sound.csv)')
 ap.add_argument('--visible', action='store_true', help='do not minimize EmuHawk')
 a = ap.parse_args()
 os.makedirs(a.out, exist_ok=True)
 env = dict(os.environ, LS_HAWK_OUT=os.path.abspath(a.out), LS_HAWK_END=a.end, LS_HAWK_INPUT=a.input, LS_HAWK_SHOT=a.shot,
-           LS_HAWK_LOG=a.log, LS_HAWK_EVERY=a.every, LS_HAWK_STATE=a.state, LS_HAWK_SAVE=a.save, LS_HAWK_DIR=here + os.sep, LS_WARP_ROOM=a.warp, LS_POKE=a.poke)
+           LS_HAWK_LOG=a.log, LS_HAWK_EVERY=a.every, LS_HAWK_STATE=a.state, LS_HAWK_SAVE=a.save, LS_HAWK_DIR=here + os.sep, LS_HAWK_SOUND='1' if a.sound else '', LS_WARP_ROOM=a.warp, LS_POKE=a.poke, LS_PRE_POKE=a.pre_poke)
 with open(os.path.join(a.out, 'hawk.log'), 'w') as log:
     # minimized and without taking the focus (SW_SHOWMINNOACTIVE), so the runs do not get in the way
     si = subprocess.STARTUPINFO()

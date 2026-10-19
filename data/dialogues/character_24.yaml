@@ -1,0 +1,7 @@
+# what character 24 says, by story progress
+check_flag: 228
+set:
+  messages: [dialogs.c24_set_m0]
+clear:
+  messages:
+  - {action: 48}

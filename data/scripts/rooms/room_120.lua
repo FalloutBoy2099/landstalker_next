@@ -1,0 +1,20 @@
+-- Behaviours of room 120 (what its entities do: the scenes of the room, its platforms and gates). `behaviour: n` of room.yaml picks B[n].
+
+B[862] = function(e)
+  wait_trigger(e, 132)
+  set_flag(423)
+  pause_player()
+  sfx(89)
+  tile_swap(1)
+  pause(e, 10)
+  tile_swap(2)
+  pause(e, 10)
+  tile_swap(3)
+  pause(e, 10)
+  tile_swap(4)
+  pause(e, 10)
+  tile_swap(5)
+  pause(e, 10)
+  tile_swap(6)
+  pause(e, 0)
+end

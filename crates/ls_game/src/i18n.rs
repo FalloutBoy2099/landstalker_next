@@ -100,6 +100,17 @@ pub fn init_from(entries: &[(&str, &str)]) {
     *TEXTS.write().unwrap() = Some(Languages { language: "en".into(), current, english: Dictionary::default() });
 }
 
+/// The text of the credits (data/i18n/<language>/credit.txt, English when the language has none).
+pub fn credit_text(data: &Path) -> String {
+    let read = |lang: &str| std::fs::read_to_string(data.join("i18n").join(lang).join("credit.txt")).ok();
+    read(&language()).or_else(|| read("en")).unwrap_or_default()
+}
+
+/// The codes of the languages that have a dictionary folder in data/i18n, in the order of `config::LANGUAGES`.
+pub fn available_languages(data: &Path) -> Vec<String> {
+    crate::config::LANGUAGES.iter().map(|(code, _)| code.to_string()).filter(|code| data.join("i18n").join(code).is_dir()).collect()
+}
+
 pub fn language() -> String {
     TEXTS.read().unwrap().as_ref().map_or_else(|| "en".to_string(), |l| l.language.clone())
 }
@@ -159,11 +170,15 @@ pub fn tf(key: &str, values: &[(&str, String)]) -> String {
 }
 
 #[cfg(test)]
+pub static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn keys_give_texts_and_missing_ones_show_themselves() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         init_from(&[("ui", "title:\n  new_game: NEW GAME\nquit: QUIT\n"), ("messages", "got_gold: \"Got {gold} gold\"\n"), ("dialogs", "talk:\n  - \"First.\"\n  - \"Second.\"\nspoken:\n  speaker: Friday\n  text: Hi\n")]);
         assert_eq!(t("ui.title.new_game"), "NEW GAME");
         assert_eq!(t("ui.quit"), "QUIT");

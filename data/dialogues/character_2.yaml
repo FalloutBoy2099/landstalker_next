@@ -1,0 +1,24 @@
+# what character 2 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    yesno:
+      prompt:
+        messages: [dialogs.c2_progress_0_node_yesno_prompt_m0]
+      'yes':
+        messages: [dialogs.c2_progress_0_node_yesno_yes_m0]
+      'no':
+        messages: [dialogs.c2_progress_0_node_yesno_no_m0, dialogs.c2_progress_0_node_yesno_no_m1, dialogs.c2_progress_0_node_yesno_no_m2]
+- index: 0
+  min: 2
+  node:
+    messages: [dialogs.c2_progress_1_node_m0]
+- index: 0
+  min: 3
+  node:
+    messages: [dialogs.c2_progress_2_node_m0]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c2_progress_3_node_m0]

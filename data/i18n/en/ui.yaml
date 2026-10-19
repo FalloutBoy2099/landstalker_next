@@ -1,0 +1,42 @@
+# Interface texts: menus, labels of the screen (English). Keys are used as `ui.<name>`; {name} is replaced by a value.
+title:
+  logo_fallback: "LANDSTALKER"
+  new_game: "NEW GAME"
+  start_intro: "START (WITH INTRO)"
+  start_no_intro: "START (WITHOUT INTRO)"
+  continue: "CONTINUE"
+  language: "LANGUAGE: {name}"
+  quit: "QUIT"
+  no_save: " (NO SAVE)"
+pause:
+  title: "PAUSE"
+  resume: "RESUME"
+  load_game: "LOAD GAME"
+  quit_to_title: "QUIT TO TITLE"
+  quit: "QUIT"
+game_over:
+  title: "GAME OVER"
+  continue: "CONTINUE"
+  load_game: "LOAD GAME"
+  quit_to_title: "QUIT TO TITLE"
+menu:
+  header: "ITEMS"
+  header_equipment: "EQUIPMENT"
+  nothing: "  (nothing)"
+  more: "  ... {n} items"
+  help: "Action: use      Menu: close      Equipment: the equipment      Quit: close"
+  help_equipment: "Left / Right: category      Up / Down: item      Equipment: close      Menu: the items"
+  pocket: "In your pocket"
+  cat_sword: "Sword"
+  cat_armour: "Armour"
+  cat_boots: "Boots"
+  cat_ring: "Ring"
+hud:
+  quick: "{item} {n}"
+  poison: "POISON"
+  confused: "CONFUSED"
+  paralysed: "PARALYSED"
+  cursed: "CURSED"
+dialogue:
+  yes: "Yes"
+  no: "No"

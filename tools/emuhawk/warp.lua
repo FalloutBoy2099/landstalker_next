@@ -14,6 +14,11 @@ local function read(sym)
 end
 savestate.load(env("LS_HAWK_STATE"))
 for i = 1, 5 do emu.frameadvance() end
+-- LS_PRE_POKE="0xFF1002=4" writes RAM bytes BEFORE the warp (story flags: the room reads them as it loads)
+for sym, size, val in env("LS_PRE_POKE", ""):gmatch("([%w_]+)(:?%a?)=(%d+)") do
+  if size == ":w" then memory.write_u16_be(ram[sym] or tonumber(sym), tonumber(val), bus)
+  else memory.write_u8(ram[sym] or tonumber(sym), tonumber(val), bus) end
+end
 local room = tonumber(env("LS_WARP_ROOM", "1"))
 memory.write_u16_be(ram.g_RmNum1, room - 1, bus)
 for f = 0, 120 do
@@ -21,8 +26,10 @@ for f = 0, 120 do
   emu.frameadvance()
 end
 -- LS_POKE="Player_Y=22,Player_X=24" writes bytes into the RAM once the room is loaded (to put Nigel where the story would have)
-for sym, val in env("LS_POKE", ""):gmatch("([%w_]+)=(%d+)") do
-  memory.write_u8(ram[sym] or tonumber(sym), tonumber(val), bus)
+-- Name=value writes a byte, Name:w=value a word
+for sym, size, val in env("LS_POKE", ""):gmatch("([%w_]+)(:?%a?)=(%d+)") do
+  if size == ":w" then memory.write_u16_be(ram[sym] or tonumber(sym), tonumber(val), bus)
+  else memory.write_u8(ram[sym] or tonumber(sym), tonumber(val), bus) end
 end
 local steps = {}
 for s in env("LS_HAWK_INPUT", ""):gmatch("[^;]+") do

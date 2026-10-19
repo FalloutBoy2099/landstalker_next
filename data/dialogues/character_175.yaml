@@ -1,0 +1,15 @@
+# what character 175 says, by story progress
+progress:
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c175_progress_0_node_m0]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c175_progress_1_node_m0]
+- index: 0
+  min: 26
+  node:
+    messages:
+    - {action: 210}

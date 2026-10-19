@@ -1,0 +1,14 @@
+# what character 112 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c112_progress_0_node_m0]
+- index: 0
+  min: 14
+  node:
+    messages: [dialogs.c112_progress_1_node_m0]
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c112_progress_2_node_m0]

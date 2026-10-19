@@ -1,0 +1,23 @@
+# what character 68 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    set_flag_on_talk: 192
+    clear:
+      messages:
+      - {action: 16}
+    set:
+      messages: [dialogs.c68_progress_0_node_set_m0]
+- index: 0
+  min: 2
+  node:
+    messages: [dialogs.c68_progress_1_node_m0]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c68_progress_2_node_m0]
+- index: 0
+  min: 5
+  node:
+    messages: [dialogs.c68_progress_3_node_m0]

@@ -205,7 +205,7 @@ def convert_room(src, dst, number, labels, entity_labels, helper):
     }
     (dst / 'room.yaml').write_text(
         '# Converted from landstalker_engine by tools/convert_data.py (room %d). Cell coordinates are world cells\n'
-        '# (heightmap index + map.cell_offset); behaviours are legacy script numbers (data/text/behaviours.txt) until\n'
+        '# (heightmap index + map.cell_offset); behaviours are legacy script numbers (data/behaviours.yaml) until\n'
         '# the Lua scripts (scripts/rooms/room_%03d.lua) replace them.\n' % (number, number)
         + yaml.safe_dump(out, sort_keys=False, allow_unicode=True, width=140), encoding='utf-8')
     return {'id': number, 'name': name.split('/')[-1], 'path': name, 'entities': len(entities), 'warps': len(warps),

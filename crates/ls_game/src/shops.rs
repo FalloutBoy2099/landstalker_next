@@ -1,4 +1,4 @@
-//! Shops, inns and churches (data/text/shops.json, data/text/item_prices.txt) and the little dialogue box they speak through.
+//! Shops, inns and churches (data/shops.yaml, data/items.yaml) and the little dialogue box they speak through.
 //! Port of RoomView::TryShop / OfferInn / OfferChurch / ShowText / AskChoice of the C++ engine.
 //!
 //! In a shop room the goods are items lying on the counter: facing one and pressing the action button asks if you want to buy it
@@ -42,21 +42,18 @@ const INN_BASE_PRICE: i32 = 20;
 impl Shops {
     pub fn load(data: &Path) -> Shops {
         let mut shops = Shops::default();
-        if let Ok(text) = std::fs::read_to_string(data.join("text/shops.json")) {
-            if let Ok(root) = serde_json::from_str::<serde_json::Value>(&text) {
-                if let Some(rooms) = root.get("rooms").and_then(|r| r.as_object()) {
-                    for (k, v) in rooms {
-                        let Ok(id) = k.parse::<i32>() else { continue };
-                        let int = |key: &str| v.get(key).and_then(|x| x.as_i64()).unwrap_or(16) as i32;
-                        shops.rooms.insert(id, Info { name: v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(), kind: v.get("kind").and_then(|n| n.as_str()).unwrap_or("").to_string(), markup: int("markup"), lifestock_markup: int("lifestock_markup") });
-                    }
-                }
+        let root = crate::yamldata::read(&data.join("shops.yaml"));
+        if let Some(rooms) = root.get("rooms").and_then(|r| r.as_object()) {
+            for (k, v) in rooms {
+                let Ok(id) = k.parse::<i32>() else { continue };
+                let int = |key: &str| v.get(key).and_then(|x| x.as_i64()).unwrap_or(16) as i32;
+                shops.rooms.insert(id, Info { name: v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(), kind: v.get("kind").and_then(|n| n.as_str()).unwrap_or("").to_string(), markup: int("markup"), lifestock_markup: int("lifestock_markup") });
             }
         }
-        for line in std::fs::read_to_string(data.join("text/item_prices.txt")).unwrap_or_default().lines() {
-            let n: Vec<i32> = line.split_whitespace().filter_map(|t| t.parse().ok()).collect();
-            if !line.starts_with('#') && n.len() >= 2 {
-                shops.prices.insert(n[0], n[1]);
+        // the base price of every item (data/items.yaml)
+        for (index, item) in crate::yamldata::int_keys(&crate::yamldata::read(&data.join("items.yaml"))) {
+            if let Some(price) = item.get("price").and_then(|p| p.as_i64()) {
+                shops.prices.insert(index, price as i32);
             }
         }
         shops
@@ -90,7 +87,8 @@ enum Ask {
     Cutscene,
     Buy { item: i32, price: i32, entity: usize },
     Inn { price: i32 },
-    Pray { price: i32 },
+    /// the church cures what the mask says (bits of the statuses: poison, confusion, paralysis, curse)
+    Pray { price: i32, mask: u8 },
     Record,
 }
 
@@ -113,6 +111,10 @@ pub struct Dialogue {
     branch: Option<(Vec<Op>, Vec<Op>)>,
     /// the actions a conversation asks for once it is over
     actions: Vec<i32>,
+    /// the book of a church that lies on the lectern while the priest speaks: it goes back to its shelf afterwards
+    book: Option<usize>,
+    /// the priest has done his service: the book is used up and goes away (the original moves it off screen), otherwise it goes back to its shelf
+    book_used: bool,
     /// seconds a box stays on the screen before it goes away by itself (0: until it is dismissed), and the time it has been there
     wait: f32,
     timer: f32,
@@ -145,11 +147,8 @@ fn give(game: &mut GameState, msg: &mut Message, item: i32) {
         return;
     }
     game.add_item(item);
-    let mut text = format!("Got {}", game.item_name(item));
-    if game.item_count(item) > 1 {
-        text.push_str(&format!(" (x{})", game.item_count(item)));
-    }
-    msg.show(text);
+    let count = game.item_count(item);
+    msg.show(crate::i18n::tf(if count > 1 { "messages.pickup.item_count" } else { "messages.pickup.item" }, &[("item", game.item_name(item)), ("count", count.to_string())]));
 }
 
 impl Dialogue {
@@ -261,11 +260,11 @@ pub fn talk(
             }
             let item = s.kind - 0xC0;
             let Some(price) = shops.item_price(info, item) else { continue };
-            found = Some((format!("{}: {} golds.\nDo you want to buy it?", game.item_name(item), price), Ask::Buy { item, price, entity: s.index }));
+            found = Some((crate::i18n::tf("messages.shop.ask_buy", &[("item", game.item_name(item)), ("price", price.to_string())]), Ask::Buy { item, price, entity: s.index }));
             break;
         }
-    } else if info.kind == "inn" || info.kind == "church" {
-        // the innkeeper, the priest: someone who talks, in front of him
+    } else if info.kind == "inn" {
+        // the innkeeper: someone who talks, in front of him
         let (qx, qy) = (p.x + dx * (crate::physics::PLAYER_RADIUS + 0.4), p.y + dy * (crate::physics::PLAYER_RADIUS + 0.4));
         for s in &snaps {
             if !s.talks || !s.visible || s.kind == 0 || s.hbase <= 0.0 || game.collected.contains(&(room_id, s.index)) {
@@ -276,14 +275,7 @@ pub fn talk(
                 continue;
             }
             let price = Shops::inn_price(info);
-            found = Some(if info.kind == "inn" {
-                (format!("Would you like to stay the night?\n{} golds.", price), Ask::Inn { price })
-            } else if game.status & 0x0f != 0 {
-                let count = (game.status & 0x0f).count_ones() as i32;
-                (format!("My child, you are afflicted.\nA prayer costs {} golds.\nShall I pray for you?", price * count), Ask::Pray { price: price * count })
-            } else {
-                ("Welcome, my child.\nShall I record your adventure?".to_string(), Ask::Record)
-            });
+            found = Some((crate::i18n::tf("messages.shop.ask_inn", &[("price", price.to_string())]), Ask::Inn { price }));
             break;
         }
     }
@@ -291,7 +283,7 @@ pub fn talk(
         dlg.ask(text, ask);
         dlg.froze = true;
         frozen.0 = true;
-    } else if info.kind != "inn" && info.kind != "church" {
+    } else if info.kind != "inn" {
         talk_to_character(&mut dlg, &mut frozen, &mut game, &script, &room, &*data, &mut msg, &mut cut, p);
     }
 }
@@ -306,6 +298,32 @@ fn talk_to_character(dlg: &mut Dialogue, frozen: &mut GameFrozen, game: &mut Gam
     let log = std::env::var("LS_LOG_DIALOGUE").is_ok();
     if log {
         println!("[dialogue] action at ({:.2}, {:.2}) facing {}, looking at ({:.2}, {:.2})", p.x, p.y, p.facing, qx, qy);
+    }
+    // a sign on the wall: Nigel stands on the cell in front of it (its floor type 0x11-0x18 or 0x1E-0x25), facing it; the sign number is the room's n-th character
+    if let Some(cell) = room.room.cell_at_world(p.x.floor() as i32, p.y.floor() as i32) {
+        let t = cell.floor_type as usize;
+        // (the facing it must have: 1 north-east, 0 north-west; the number of the sign)
+        let sign = match t {
+            0x11..=0x14 => Some((1u8, t - 0x11)),
+            0x15..=0x18 => Some((0, t - 0x15)),
+            0x1E..=0x21 => Some((1, 4 + t - 0x1E)),
+            0x22..=0x25 => Some((0, 4 + t - 0x22)),
+            _ => None,
+        };
+        if let Some((_, n)) = sign.filter(|(face, _)| p.facing & 3 == *face) {
+            if let Some(character) = file.characters.get(n).copied() {
+                let conv = data.begin(character, &mut StoryOf { script, game });
+                for &item in &conv.give_now {
+                    give(game, msg, item);
+                }
+                if !conv.pages.is_empty() {
+                    dlg.start(conv);
+                    dlg.froze = true;
+                    frozen.0 = true;
+                    return;
+                }
+            }
+        }
     }
     for s in script.entities() {
         if log && s.talks {
@@ -372,9 +390,9 @@ pub fn dialogue_input(
     }
     // a cutscene box that goes away by itself
     if dlg.wait > 0.0 && dlg.ask.is_none() && !dlg.pages.is_empty() {
-        dlg.timer += time.delta_secs();
+        dlg.timer += time.delta_secs().min(0.05); // like the recorded scenes' clock: a slow frame does not make the boxes run ahead of the picture
     }
-    // the original types two frames a letter, then waits the `wait` of the operation (measured on the ROM)
+    // the original types a letter a frame, then waits the `wait` of the operation (measured on the ROM)
     let timed_out = dlg.wait > 0.0 && dlg.timer >= dlg.wait + dlg.text.chars().count() as f32 * TYPE_TIME && dlg.ask.is_none();
     let Some(ask) = dlg.ask.clone() else {
         if ctl.action.just || ctl.attack.just || ctl.jump.just || timed_out {
@@ -445,57 +463,61 @@ pub fn dialogue_input(
         }
         Ask::Buy { item, price, entity } => {
             if !yes {
-                dlg.say("Are you just browsing?");
+                dlg.say(crate::i18n::t("messages.shop.browsing"));
             } else if game.gold < price {
                 sfx.play(0x44);
-                dlg.say("You can't afford that now.\nMake more golds somewhere!");
+                dlg.say(crate::i18n::t("messages.shop.cant_afford"));
             } else {
                 game.gold -= price;
                 game.add_item(item);
                 sfx.play(0x6A);
                 game.collected.insert((room_id, entity));
                 script.clear_pickup(entity);
-                dlg.say("Thank you!\nDon't waste it.");
+                dlg.say(crate::i18n::t("messages.shop.thanks"));
             }
         }
         Ask::Inn { price } => {
             if !yes {
-                dlg.say("Take it easy!");
+                dlg.say(crate::i18n::t("messages.shop.take_it_easy"));
             } else if game.gold < price {
                 sfx.play(0x44);
-                dlg.say("You can't afford that now.\nMake more golds somewhere!");
+                dlg.say(crate::i18n::t("messages.shop.cant_afford"));
             } else {
                 game.gold -= price;
                 game.health = game.max_health;
                 sound.request_jingle(0x06, 4.5); // MusicInnRest
-                dlg.say("Good morning!\nYou feel fully rested.");
+                dlg.say(crate::i18n::t("messages.shop.inn_rested"));
             }
         }
-        Ask::Pray { price } => {
+        Ask::Pray { price, mask } => {
             if !yes {
-                dlg.say("May God be with you.");
+                dlg.say(crate::i18n::t("messages.shop.god_with_you"));
             } else if game.gold < price {
                 sfx.play(0x44);
-                dlg.say("You can't afford that now.\nCome back when you can.");
+                dlg.say(crate::i18n::t("messages.shop.inn_cant_afford"));
             } else {
                 game.gold -= price;
                 for s in 0..4 {
-                    combat.cure(&mut game, s);
+                    if mask >> s & 1 != 0 {
+                        combat.cure(&mut game, s);
+                    }
                 }
                 sfx.play(0x69);
-                dlg.say("You are cured.\nGod bless you!");
+                dlg.book_used = true;
+                dlg.say(crate::i18n::t("messages.shop.cured"));
             }
         }
         Ask::Record => {
             if !yes {
-                dlg.say("May God be with you.");
+                dlg.say(crate::i18n::t("messages.shop.god_with_you"));
             } else if let Ok(p) = players.single() {
                 // the adventure is recorded here (and saved to landstalker.sav): Nigel wakes up in this church after dying
                 game.church = Some((room_id, p.x, p.y));
                 game.health = game.max_health;
                 let saved = crate::save::write(&crate::save::path_of(&dir.0), &crate::save::snapshot(&game, &script, room_id, p.x, p.y));
                 sound.request_jingle(0x07, 3.5); // MusicSaveGame
-                dlg.say(if saved { "Your adventure is recorded.\nGod bless you!" } else { "Something went wrong...\nYour adventure could not be recorded." });
+                dlg.book_used = true;
+                dlg.say(crate::i18n::t(if saved { "messages.shop.recorded" } else { "messages.shop.record_failed" }));
             }
         }
     }
@@ -503,47 +525,74 @@ pub fn dialogue_input(
 
 /// The dialogue box at the bottom of the game area.
 /// Seconds a letter takes to be typed in the boxes of the story.
-const TYPE_TIME: f32 = 2.0 / 60.0;
+const TYPE_TIME: f32 = 1.0 / 60.0;
 
-pub fn dialogue_overlay(mut contexts: EguiContexts, dlg: Res<Dialogue>) -> Result {
+pub fn dialogue_overlay(mut contexts: EguiContexts, dlg: Res<Dialogue>, config: Res<crate::config::Config>) -> Result {
     if !dlg.open {
         return Ok(());
     }
     let ctx = contexts.ctx_mut()?.clone();
+    let shown: String = if dlg.wait > 0.0 { dlg.text.chars().take((dlg.timer / TYPE_TIME) as usize + 1).collect() } else { dlg.text.clone() };
+    text_box(&ctx, &config.ui, "dialogue", &dlg.text, &shown, dlg.ask.as_ref().map(|_| dlg.yes));
+    Ok(())
+}
+
+/// A notification (an item found, gold, a refusal): the window of the dialogues, as small as its text, where the dialogues appear.
+pub fn notice_box(ctx: &egui::Context, ui_cfg: &crate::config::UiSettings, id: &str, text: &str) {
     let screen = ctx.content_rect();
     let game_w = screen.width() - crate::playtest::PANEL_W;
-    if dlg.wait > 0.0 && dlg.ask.is_none() {
-        // the boxes of the story: the original's black box with a white frame, over the lines 165 to 218 of its screen
-        let k = game_w / 320.0;
-        let rect = egui::Rect::from_min_max(egui::pos2(screen.left() + 13.0 * k, screen.top() + 165.0 * k), egui::pos2(screen.left() + 307.0 * k, screen.top() + 218.0 * k));
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("story_box")));
-        painter.rect_filled(rect, 3.0 * k, egui::Color32::BLACK);
-        painter.rect_stroke(rect.shrink(k), 3.0 * k, egui::Stroke::new(k, egui::Color32::from_gray(204)), egui::StrokeKind::Inside);
-        let shown: String = dlg.text.chars().take((dlg.timer / TYPE_TIME) as usize + 1).collect();
-        for (i, line) in shown.lines().enumerate() {
-            painter.text(egui::pos2(rect.left() + 4.0 * k, rect.top() + (5.0 + 16.0 * i as f32) * k), egui::Align2::LEFT_TOP, line, egui::FontId::monospace(12.0 * k), egui::Color32::WHITE);
-        }
-        return Ok(());
-    }
-    egui::Area::new(egui::Id::new("dialogue")).fixed_pos(egui::pos2(game_w / 2.0 - 320.0, screen.height() - 200.0)).interactable(false).show(&ctx, |ui| {
-        egui::Frame::new().fill(egui::Color32::from_rgba_unmultiplied(20, 20, 60, 245)).stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 220, 240))).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
-            ui.set_min_width(620.0);
-            let shown: String = if dlg.wait > 0.0 { dlg.text.chars().take((dlg.timer / TYPE_TIME) as usize + 1).collect() } else { dlg.text.clone() };
-            ui.label(egui::RichText::new(shown).size(24.0).color(egui::Color32::WHITE));
-            if dlg.ask.is_some() {
+    let at = egui::pos2(game_w / 2.0, screen.top() + 224.0 * crate::SCALE - ui_cfg.dialog_margin);
+    egui::Area::new(egui::Id::new(id)).pivot(egui::Align2::CENTER_BOTTOM).order(egui::Order::Tooltip).fixed_pos(at).interactable(false).show(ctx, |ui| {
+        let [r, g, b, a] = ui_cfg.dialog_background;
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgba_unmultiplied(r, g, b, a))
+            .corner_radius(egui::CornerRadius::same(10))
+            .stroke(egui::Stroke::new(3.0, egui::Color32::from_gray(204)))
+            .inner_margin(egui::Margin::symmetric((ui_cfg.dialog_padding * 0.8) as i8, (ui_cfg.dialog_padding * 0.5) as i8))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(text).size(ui_cfg.font_size * 1.3).monospace().color(egui::Color32::WHITE));
+            });
+    });
+}
+
+/// The window every text of the game is shown in (the dialogues of the characters, their questions, the boxes of the story and of the scenes): the
+/// background, a thin light frame with round corners, the text in monospace, at the place and the size of landstalker.ini, [ui]. `full` is all the text
+/// (the box keeps its height while `shown` is typed in), `ask`: Some(yes selected) adds the answers.
+pub fn text_box(ctx: &egui::Context, ui_cfg: &crate::config::UiSettings, id: &str, full: &str, shown: &str, ask: Option<bool>) {
+    let screen = ctx.content_rect();
+    let game_w = screen.width() - crate::playtest::PANEL_W;
+    // the box sits at the bottom, the middle or the top of the picture of the game (320 x 224 of the original, drawn SCALE times larger from the top of the window)
+    let picture_h = 224.0 * crate::SCALE;
+    let (pivot, at) = match ui_cfg.dialog_position.as_str() {
+        "top" => (egui::Align2::CENTER_TOP, egui::pos2(game_w / 2.0, screen.top() + ui_cfg.dialog_margin)),
+        "middle" => (egui::Align2::CENTER_CENTER, egui::pos2(game_w / 2.0, screen.top() + picture_h / 2.0)),
+        _ => (egui::Align2::CENTER_BOTTOM, egui::pos2(game_w / 2.0, screen.top() + picture_h - ui_cfg.dialog_margin)),
+    };
+    // as wide as the story boxes of the original (294 of the 320 columns), unless the ini says otherwise
+    let width = if ui_cfg.dialog_width > 0.0 { ui_cfg.dialog_width } else { (294.0 * crate::SCALE).min(game_w - 16.0) };
+    egui::Area::new(egui::Id::new(id)).pivot(pivot).order(egui::Order::Tooltip).fixed_pos(at).interactable(false).show(ctx, |ui| {
+        let [r, g, b, a] = ui_cfg.dialog_background;
+        let pad = ui_cfg.dialog_padding;
+        egui::Frame::new().fill(egui::Color32::from_rgba_unmultiplied(r, g, b, a)).corner_radius(egui::CornerRadius::same(10)).stroke(egui::Stroke::new(3.0, egui::Color32::from_gray(204))).inner_margin(egui::Margin::same(pad as i8)).show(ui, |ui| {
+            ui.set_min_width(width - 2.0 * pad);
+            ui.set_max_width(width - 2.0 * pad);
+            // (the original's boxes are three lines high: 53 of the 224 lines of the picture)
+            let line = ui_cfg.dialog_font_size * 1.3;
+            ui.set_min_height((53.0 * crate::SCALE - 2.0 * pad).max(full.lines().count() as f32 * line));
+            ui.label(egui::RichText::new(shown).size(ui_cfg.dialog_font_size).monospace().color(egui::Color32::WHITE));
+            if let Some(yes) = ask {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    for (label, on) in [("Yes", true), ("No", false)] {
-                        let selected = dlg.yes == on;
+                    for (label, on) in [(crate::i18n::t("ui.dialogue.yes"), true), (crate::i18n::t("ui.dialogue.no"), false)] {
+                        let selected = yes == on;
                         let color = if selected { egui::Color32::from_rgb(250, 230, 120) } else { egui::Color32::LIGHT_GRAY };
-                        ui.label(egui::RichText::new(format!("{} {}", if selected { ">" } else { " " }, label)).size(22.0).monospace().color(color));
+                        ui.label(egui::RichText::new(format!("{} {}", if selected { ">" } else { " " }, label)).size(ui_cfg.dialog_font_size * 0.92).monospace().color(color));
                         ui.add_space(24.0);
                     }
                 });
             }
         });
     });
-    Ok(())
 }
 
 #[cfg(test)]
@@ -570,5 +619,68 @@ mod tests {
         assert!(shops.is_shop(596) && shops.for_room(598).map(|i| i.kind.as_str()) == Some("inn"));
         let info = shops.for_room(596).unwrap();
         assert!(shops.item_price(info, 0).is_some());
+    }
+}
+
+/// The entity types of the books of the churches (record, detox, anti-curse, awakening, spell, restoration).
+pub const CHURCH_BOOKS: [i32; 6] = [227, 225, 226, 209, 228, 238];
+
+/// The books of the churches: Nigel lifts one off its shelf like a crate, carries it to the lectern (the cell of the floor type "counter", in front of the priest)
+/// and puts it down there: that asks the priest for what the book is for (EB_ShopItem). The book goes back to its shelf when the priest has spoken, unless the service was done: then it is used up.
+pub fn church_books(
+    mut dlg: ResMut<Dialogue>,
+    mut frozen: ResMut<GameFrozen>,
+    shops: Res<Shops>,
+    game: Res<GameState>,
+    script: NonSend<Scripting>,
+    room: Res<RoomRes>,
+    thrown: Res<crate::Thrown>,
+) {
+    // (the kinds of the books: record, detox, anti-curse, awakening, spell, restoration; what each cures: the statuses poison 0, confusion 1, paralysis 2, curse 3)
+    const BOOKS: [(i32, u8); 6] = [(227, 0), (225, 0b0001), (226, 0b1000), (209, 0b0100), (228, 0b0010), (238, 0b1111)];
+    let file = &room.room.file;
+    if let Some(i) = dlg.book {
+        if !dlg.open {
+            if std::mem::take(&mut dlg.book_used) {
+                // the service is done: the book is used up
+                script.set_b(i, "visible", false);
+                script.set_b(i, "solid", false);
+            } else if let Some(e) = file.entities.get(i) {
+                // refused (or nothing to cure): the book goes back to its shelf
+                script.set_f(i, "x", e.position[0] as f32);
+                script.set_f(i, "y", e.position[1] as f32);
+                script.set_f(i, "z", e.position[2] as f32);
+            }
+            dlg.book = None;
+        }
+        return;
+    }
+    let Some(info) = shops.for_room(file.id).filter(|i| i.kind == "church") else { return };
+    if dlg.open || frozen.0 {
+        return;
+    }
+    for s in script.entities() {
+        let Some(&(_, mask)) = BOOKS.iter().find(|(k, _)| *k == s.kind) else { continue };
+        if !s.visible || s.carried || thrown.0.iter().any(|t| t.index == s.index) {
+            continue;
+        }
+        let Some(cell) = room.room.cell_at_world(s.x.floor() as i32, s.y.floor() as i32) else { continue };
+        if cell.floor_type != 0x0E || (s.z - cell.height as f32).abs() > 0.2 {
+            continue;
+        }
+        // on the lectern
+        let price = Shops::inn_price(info);
+        dlg.book = Some(s.index);
+        if s.kind == 227 {
+            dlg.ask(crate::i18n::t("messages.shop.ask_record"), Ask::Record);
+        } else if game.status & mask != 0 {
+            let count = (game.status & mask).count_ones() as i32;
+            dlg.ask(crate::i18n::tf("messages.shop.ask_pray", &[("price", (price * count).to_string())]), Ask::Pray { price: price * count, mask });
+        } else {
+            dlg.say(crate::i18n::t("messages.shop.browsing"));
+        }
+        dlg.froze = true;
+        frozen.0 = true;
+        return;
     }
 }

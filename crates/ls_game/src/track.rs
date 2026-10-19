@@ -23,6 +23,10 @@ pub struct Track {
     pub strs: Vec<(f32, i32, f32)>,
     /// (frame, Friday's place on the screen in pixels of the 320x224 picture, None when she is not there)
     pub friday: Vec<(f32, Option<(f32, f32)>)>,
+    /// (frame, sound id): what the game asked its sound driver for (a song below 0x40, else a sound effect)
+    pub sounds: Vec<(f32, u16)>,
+    /// (frame, Player_Action bits, animation): what Nigel does (walks, jumps, swings the sword...)
+    pub poses: Vec<(f32, u16)>,
     /// (frame, action): a story action of cutscenes.json that starts (the conversations); the recording waits while it runs
     pub actions: Vec<(f32, i32)>,
     /// (frame, text of the message box, empty to close it)
@@ -54,6 +58,8 @@ impl Track {
                     t.msgs.push((num(frame), text.replace('|', "\n")));
                 }
                 "fr" if f.len() >= 3 => t.friday.push((num(f[0]), if num(f[1]) < 0.0 { None } else { Some((num(f[1]), num(f[2]))) })),
+                "sfx" if f.len() >= 2 => t.sounds.push((num(f[0]), num(f[1]) as u16)),
+                "pose" if f.len() >= 2 => t.poses.push((num(f[0]), num(f[1]) as u16)),
                 "action" if f.len() >= 2 => t.actions.push((num(f[0]), num(f[1]) as i32)),
                 "handover" if f.len() >= 2 => t.handover = Some((num(f[0]), num(f[1]) as i32)),
                 "e" if f.len() >= 7 => {
@@ -98,6 +104,11 @@ impl Track {
 
     pub fn friday_at(&self, frame: f32) -> Option<(f32, f32)> {
         Self::last(&self.friday, frame).flatten()
+    }
+
+    /// What Nigel does at a frame (the bits of the original's Player_Action).
+    pub fn pose_at(&self, frame: f32) -> u16 {
+        Self::last(&self.poses, frame).unwrap_or(0)
     }
 
     pub fn fade_at(&self, frame: f32) -> f32 {

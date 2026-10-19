@@ -1,0 +1,25 @@
+# what character 4 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    messages: [dialogs.c4_progress_0_node_m0]
+- index: 2
+  min: 1
+  node:
+    messages:
+    - {set_flag: 316}
+    - dialogs.c4_progress_1_node_m1
+    - dialogs.c4_progress_1_node_m2
+    - dialogs.c4_progress_1_node_m3
+    - dialogs.c4_progress_1_node_m4
+    - dialogs.c4_progress_1_node_m5
+    - dialogs.c4_progress_1_node_m6
+- index: 2
+  min: 3
+  node:
+    set_flag_on_talk: 226
+    clear:
+      messages: [dialogs.c4_progress_2_node_clear_m0]
+    set:
+      messages: [dialogs.c4_progress_2_node_set_m0, dialogs.c4_progress_2_node_set_m1, dialogs.c4_progress_2_node_set_m2]

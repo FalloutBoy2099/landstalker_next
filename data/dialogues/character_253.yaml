@@ -1,0 +1,10 @@
+# what character 253 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c253_progress_0_node_m0]
+- index: 0
+  min: 29
+  node:
+    messages: []

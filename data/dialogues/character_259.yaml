@@ -1,0 +1,13 @@
+# what character 259 says, by story progress
+check_flag: 333
+set:
+  check_flag: 347
+  set:
+    messages: [dialogs.c259_set_set_m0]
+  clear:
+    messages: [dialogs.c259_set_clear_m0]
+clear:
+  messages:
+  - {set_flag: 224}
+  - dialogs.c259_clear_m1
+  - dialogs.c259_clear_m2

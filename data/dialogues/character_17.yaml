@@ -1,0 +1,15 @@
+# what character 17 says, by story progress
+progress:
+- index: 0
+  min: 8
+  node:
+    messages:
+    - {action: 33}
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c17_progress_1_node_m0]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c17_progress_2_node_m0]

@@ -106,7 +106,7 @@ pub struct Entity {
     pub orientation: String,
     pub speed: i32,
     pub palette: i32,
-    /// legacy script number (data/text/behaviours.txt)
+    /// legacy script number (data/behaviours.yaml)
     pub behaviour: i32,
     /// Lua script (replaces `behaviour`), e.g. objects/button
     pub script: Option<String>,
@@ -179,6 +179,39 @@ pub struct Tmx {
     pub layers: HashMap<String, Vec<u32>>,
     /// first gid of each tileset, by name (`blocks`, `height`, `floor_type`, `cell_flags`, `cell_extra`)
     pub first_gid: HashMap<String, u32>,
+    /// the objects of the object layers (the lights of the room are in the layer `lights`)
+    pub objects: Vec<TmxObject>,
+}
+
+/// An object of an object layer of a `map.tmx`: its place in the map units of Tiled and its custom properties (`light_type`, `color`, `intensity`...).
+#[derive(Debug, Clone, Default)]
+pub struct TmxObject {
+    /// the name of the object layer
+    pub layer: String,
+    pub name: String,
+    /// the `type` (`class`) of the object
+    pub kind: String,
+    pub x: f32,
+    pub y: f32,
+    pub properties: HashMap<String, String>,
+}
+
+impl TmxObject {
+    pub fn number(&self, key: &str, default: f32) -> f32 {
+        self.properties.get(key).and_then(|v| v.trim().parse().ok()).unwrap_or(default)
+    }
+
+    /// A colour property (`#rrggbb` or `#aarrggbb`, as Tiled writes it) as red, green, blue in 0..1.
+    pub fn color(&self, key: &str, default: [f32; 3]) -> [f32; 3] {
+        let Some(v) = self.properties.get(key) else { return default };
+        let hex = v.trim().trim_start_matches('#');
+        let hex = if hex.len() == 8 { &hex[2..] } else { hex };
+        if hex.len() != 6 {
+            return default;
+        }
+        let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).map(|b| b as f32 / 255.0).unwrap_or(1.0);
+        [byte(0), byte(2), byte(4)]
+    }
 }
 
 impl Tmx {
@@ -189,6 +222,7 @@ impl Tmx {
         let height: usize = map.attribute("height").ok_or_else(|| anyhow!("no height"))?.parse()?;
         let mut first_gid = HashMap::new();
         let mut layers = HashMap::new();
+        let mut objects = Vec::new();
         for node in map.children().filter(|n| n.is_element()) {
             match node.tag_name().name() {
                 "tileset" => {
@@ -219,10 +253,29 @@ impl Tmx {
                     }
                     layers.insert(name, values);
                 }
+                "objectgroup" => {
+                    let layer = node.attribute("name").unwrap_or("").to_string();
+                    for o in node.children().filter(|c| c.has_tag_name("object")) {
+                        let mut properties = HashMap::new();
+                        for p in o.children().filter(|c| c.has_tag_name("properties")).flat_map(|p| p.children().filter(|c| c.has_tag_name("property"))) {
+                            if let Some(name) = p.attribute("name") {
+                                properties.insert(name.to_string(), p.attribute("value").map(str::to_string).or_else(|| p.text().map(str::to_string)).unwrap_or_default());
+                            }
+                        }
+                        objects.push(TmxObject {
+                            layer: layer.clone(),
+                            name: o.attribute("name").unwrap_or("").to_string(),
+                            kind: o.attribute("type").or_else(|| o.attribute("class")).unwrap_or("").to_string(),
+                            x: o.attribute("x").and_then(|v| v.parse().ok()).unwrap_or(0.0),
+                            y: o.attribute("y").and_then(|v| v.parse().ok()).unwrap_or(0.0),
+                            properties,
+                        });
+                    }
+                }
                 _ => {}
             }
         }
-        Ok(Tmx { width, height, layers, first_gid })
+        Ok(Tmx { width, height, layers, first_gid, objects })
     }
 }
 
@@ -326,4 +379,22 @@ pub fn load_index(data_dir: &Path) -> Result<Index> {
 
 pub fn room_dir(data_dir: &Path, id: i32) -> PathBuf {
     data_dir.join("rooms").join(format!("room_{:03}", id))
+}
+
+#[cfg(test)]
+mod tmx_tests {
+    use super::Tmx;
+
+    #[test]
+    fn the_lights_of_a_map_are_read_from_its_object_layer() {
+        let text = r##"<map width="1" height="1"><tileset firstgid="1" name="blocks"/><layer name="background"><data encoding="csv">1</data></layer><objectgroup id="2" name="lights"><object id="1" name="flame" type="light" x="32.5" y="48"><point/><properties><property name="light_type" value="flame"/><property name="color" type="color" value="#ff8000"/><property name="intensity" type="float" value="1.5"/></properties></object></objectgroup></map>"##;
+        let tmx = Tmx::parse(text).unwrap();
+        assert_eq!(tmx.objects.len(), 1);
+        let o = &tmx.objects[0];
+        assert_eq!((o.layer.as_str(), o.kind.as_str(), o.x, o.y), ("lights", "light", 32.5, 48.0));
+        assert_eq!(o.properties["light_type"], "flame");
+        assert_eq!(o.number("intensity", 1.0), 1.5);
+        assert_eq!(o.number("flicker", 0.3), 0.3);
+        assert_eq!(o.color("color", [0.0; 3]), [1.0, 128.0 / 255.0, 0.0]);
+    }
 }

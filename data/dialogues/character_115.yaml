@@ -1,0 +1,14 @@
+# what character 115 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c115_progress_0_node_m0]
+- index: 0
+  min: 26
+  node:
+    messages: [dialogs.c115_progress_1_node_m0]
+- index: 0
+  min: 29
+  node:
+    messages: [dialogs.c115_progress_2_node_m0, dialogs.c115_progress_2_node_m1]

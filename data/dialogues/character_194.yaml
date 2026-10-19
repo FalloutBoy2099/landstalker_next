@@ -1,0 +1,10 @@
+# what character 194 says, by story progress
+progress:
+- index: 0
+  min: 17
+  node:
+    messages: [dialogs.c194_progress_0_node_m0]
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c194_progress_1_node_m0]

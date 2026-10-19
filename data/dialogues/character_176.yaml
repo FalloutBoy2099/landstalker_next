@@ -1,0 +1,14 @@
+# what character 176 says, by story progress
+progress:
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c176_progress_0_node_m0, dialogs.c176_progress_0_node_m1]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c176_progress_1_node_m0]
+- index: 0
+  min: 26
+  node:
+    messages: [dialogs.c176_progress_2_node_m0]

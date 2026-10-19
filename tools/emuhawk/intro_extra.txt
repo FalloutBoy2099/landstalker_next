@@ -1,8 +1,41 @@
-msg 2982 Found Statue of Jypta.
-msg 3100 Found Statue of Jypta.|Took Statue of Jypta.
+msg 2982 messages.intro.found_statue
+msg 3100 messages.intro.took_statue
 msg 3215
-action 4577 273
-action 6027 276
-action 7637 277
-action 8187 278
-action 8457 274
+msg 4584 cutscenes.t253#0
+msg 4822 messages.intro.got_2000
+msg 4974 cutscenes.t255#0
+msg 5211 cutscenes.t256#0
+msg 5512 cutscenes.t257#0
+msg 5592
+msg 5631 cutscenes.t258#0
+msg 5718 cutscenes.t259#0
+msg 5802
+msg 6036 cutscenes.t260#0
+msg 6256 cutscenes.t261#0
+msg 6333 cutscenes.t262#0
+msg 6418 cutscenes.t263#0
+msg 6647 cutscenes.t263#1
+msg 6888 cutscenes.t264#0
+msg 7158 cutscenes.t265#0
+msg 7278 cutscenes.t266#0
+msg 7532
+msg 7646 cutscenes.t267#0
+msg 7730 cutscenes.t268#0
+msg 7902
+msg 8193 cutscenes.t269#0
+msg 8322
+msg 8463 cutscenes.t270#0
+msg 8585 cutscenes.t271#0
+msg 8829 cutscenes.t272#0
+msg 8999 cutscenes.t273#0
+msg 9265 cutscenes.t274#0
+msg 9372 cutscenes.t275#0
+msg 9572 cutscenes.t275#1
+msg 9835 cutscenes.t276#0
+msg 10101 cutscenes.t277#0
+msg 10243 cutscenes.t278#0
+msg 10506 cutscenes.t279#0
+msg 10730 cutscenes.t280#0
+msg 10972
+msg 11341 cutscenes.t281#0
+msg 11564

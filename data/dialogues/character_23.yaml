@@ -1,0 +1,21 @@
+# what character 23 says, by story progress
+progress:
+- index: 0
+  min: 9
+  node:
+    messages: [dialogs.c23_progress_0_node_m0]
+- index: 0
+  min: 12
+  node:
+    messages:
+    - {set_flag: 46}
+    - dialogs.c23_progress_1_node_m1
+    - dialogs.c23_progress_1_node_m2
+- index: 0
+  min: 14
+  node:
+    messages: [dialogs.c23_progress_2_node_m0]
+- index: 0
+  min: 15
+  node:
+    messages: [dialogs.c23_progress_3_node_m0, dialogs.c23_progress_3_node_m1]

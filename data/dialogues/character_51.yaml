@@ -1,0 +1,14 @@
+# what character 51 says, by story progress
+progress:
+- index: 0
+  min: 16
+  node:
+    messages: [dialogs.c51_progress_0_node_m0]
+- index: 0
+  min: 17
+  node:
+    messages: [dialogs.c51_progress_1_node_m0, dialogs.c51_progress_1_node_m1]
+- index: 0
+  min: 19
+  node:
+    messages: [dialogs.c51_progress_2_node_m0]

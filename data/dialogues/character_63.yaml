@@ -1,0 +1,22 @@
+# what character 63 says, by story progress
+progress:
+- index: 0
+  min: 0
+  node:
+    messages: [dialogs.c63_progress_0_node_m0, dialogs.c63_progress_0_node_m1, dialogs.c63_progress_0_node_m2, dialogs.c63_progress_0_node_m3, dialogs.c63_progress_0_node_m4]
+- index: 0
+  min: 2
+  node:
+    messages: [dialogs.c63_progress_1_node_m0]
+- index: 0
+  min: 3
+  node:
+    messages: [dialogs.c63_progress_2_node_m0]
+- index: 0
+  min: 4
+  node:
+    messages: [dialogs.c63_progress_3_node_m0, dialogs.c63_progress_3_node_m1]
+- index: 0
+  min: 20
+  node:
+    messages: [dialogs.c63_progress_4_node_m0, dialogs.c63_progress_4_node_m1, dialogs.c63_progress_4_node_m2]

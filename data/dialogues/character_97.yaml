@@ -1,0 +1,22 @@
+# what character 97 says, by story progress
+progress:
+- index: 0
+  min: 5
+  node:
+    messages: [dialogs.c97_progress_0_node_m0, dialogs.c97_progress_0_node_m1]
+- index: 0
+  min: 6
+  node:
+    messages: [dialogs.c97_progress_1_node_m0]
+- index: 0
+  min: 8
+  node:
+    messages: [dialogs.c97_progress_2_node_m0]
+- index: 0
+  min: 24
+  node:
+    messages: [dialogs.c97_progress_3_node_m0]
+- index: 0
+  min: 26
+  node:
+    messages: [dialogs.c97_progress_4_node_m0]

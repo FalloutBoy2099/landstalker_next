@@ -16,7 +16,8 @@ import csv, sys
 
 log, out, first, last = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 handover = set(int(r) for r in sys.argv[5].split(',')) if len(sys.argv) > 5 and sys.argv[5] else set()   # rooms the game's scripts play
-extra = open(sys.argv[6]).read().splitlines() if len(sys.argv) > 6 else []                              # lines added by hand (msg ...)
+extra = open(sys.argv[6]).read().splitlines() if len(sys.argv) > 6 and sys.argv[6] else []
+sound_csv = sys.argv[7] if len(sys.argv) > 7 else ''     # sound.csv of hawk.lua (--sound): the sounds the game asked for                              # lines added by hand (msg ...)
 rows = [r for r in csv.DictReader(open(log)) if first <= int(r['frame']) <= last]
 SLOTS = 12
 
@@ -38,7 +39,9 @@ last_slot = {}
 last_fade = None
 last_str = None
 last_fr = None
+last_pose = None
 handing = False
+handing_frame = 0
 for r in rows:
     f = int(r['frame']) - first
     room = int(r['g_RmNum1'])
@@ -54,6 +57,7 @@ for r in rows:
         lines.append('%s %d %d' % ('handover' if pending[0] in handover else 'room', f, pending[0]))
         if pending[0] in handover:
             handing = True
+            handing_frame = f
         last_slot = {}
         pending = None
         last_slot = {}          # the new room's entities: write them all again
@@ -67,6 +71,11 @@ for r in rows:
         if fr != last_fr and not pending:
             lines.append('fr %d %d %d' % (f, fr[0], fr[1]))
             last_fr = fr
+    if 'Player_Action' in r:
+        pose = int(r['Player_Action'])
+        if pose != last_pose and not pending:
+            lines.append('pose %d %d' % (f, pose))
+            last_pose = pose
     s = (int(r['g_IntroStringToDisplay']), int(r['g_IntroStringDisplayTime']))
     if s[0] != (last_str or (0, 0))[0]:
         lines.append('str %d %d %d' % (f, s[0], s[1]))
@@ -80,5 +89,17 @@ for r in rows:
             last_slot[i] = st
     if handing:
         break
+if sound_csv:
+    base = 0
+    sounds = []
+    for row in open(sound_csv).read().splitlines()[1:]:
+        a, b, c = row.split(',')
+        if a == 'base':
+            base = int(c)
+        else:
+            f = int(a) - base - first
+            if 0 <= f <= (handing_frame if handing_frame else 10**9):
+                sounds.append('sfx %d %s' % (f, c))
+    lines += sounds
 open(out, 'w').write('# cutscene track recorded from the original ROM (tools/emuhawk/make_track.py)\n' + '\n'.join(lines + extra) + '\n')
 print(len(lines), 'lines')

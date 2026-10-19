@@ -1,0 +1,11 @@
+# what character 181 says, by story progress
+check_flag: 164
+set:
+  check_flag: 210
+  set:
+    messages: [dialogs.c181_set_set_m0]
+  clear:
+    messages: [dialogs.c181_set_clear_m0]
+clear:
+  messages:
+  - {action: 106}

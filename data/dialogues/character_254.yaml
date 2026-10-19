@@ -1,0 +1,6 @@
+# what character 254 says, by story progress
+set_flag_on_talk: 229
+clear:
+  messages: [dialogs.c254_clear_m0, dialogs.c254_clear_m1, dialogs.c254_clear_m2, dialogs.c254_clear_m3, dialogs.c254_clear_m4, dialogs.c254_clear_m5]
+set:
+  messages: [dialogs.c254_set_m0, dialogs.c254_set_m1]
